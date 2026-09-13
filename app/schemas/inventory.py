@@ -2,7 +2,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class InventoryCreate(BaseModel):
-    organization_id: int
     product_id: int
     warehouse_id: int
     quantity: int = Field(default=0, ge=0)

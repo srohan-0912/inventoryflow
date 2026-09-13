@@ -3,12 +3,13 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_db
+from app.api.dependencies import get_current_user, get_db
 from app.models.inventory import Inventory
 from app.models.inventory_movement import (
     InventoryMovement,
     InventoryMovementType,
 )
+from app.models.user import User
 from app.schemas.inventory import (
     InventoryAdjust,
     InventoryCreate,
@@ -32,6 +33,7 @@ router = APIRouter(prefix="/inventory", tags=["Inventory"])
 def create_inventory(
     inventory_data: InventoryCreate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     if inventory_data.reserved_quantity > inventory_data.quantity:
         raise HTTPException(
@@ -39,7 +41,10 @@ def create_inventory(
             detail="Reserved quantity cannot exceed quantity.",
         )
 
-    inventory = Inventory(**inventory_data.model_dump())
+    inventory = Inventory(
+        organization_id=current_user.organization_id,
+        **inventory_data.model_dump(),
+    )
 
     db.add(inventory)
 
@@ -68,8 +73,16 @@ def create_inventory(
 )
 def get_inventory(
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    statement = select(Inventory).order_by(Inventory.id)
+    statement = (
+        select(Inventory)
+        .where(
+            Inventory.organization_id
+            == current_user.organization_id
+        )
+        .order_by(Inventory.id)
+    )
 
     return db.scalars(statement).all()
 
@@ -85,8 +98,15 @@ def get_inventory(
 def get_inventory_item(
     inventory_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    inventory = db.get(Inventory, inventory_id)
+    statement = select(Inventory).where(
+        Inventory.id == inventory_id,
+        Inventory.organization_id
+        == current_user.organization_id,
+    )
+
+    inventory = db.scalar(statement)
 
     if inventory is None:
         raise HTTPException(
@@ -109,8 +129,15 @@ def update_inventory(
     inventory_id: int,
     inventory_data: InventoryUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    inventory = db.get(Inventory, inventory_id)
+    statement = select(Inventory).where(
+        Inventory.id == inventory_id,
+        Inventory.organization_id
+        == current_user.organization_id,
+    )
+
+    inventory = db.scalar(statement)
 
     if inventory is None:
         raise HTTPException(
@@ -159,12 +186,19 @@ def adjust_inventory(
     inventory_id: int,
     adjustment: InventoryAdjust,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    inventory = db.scalar(
+    statement = (
         select(Inventory)
-        .where(Inventory.id == inventory_id)
+        .where(
+            Inventory.id == inventory_id,
+            Inventory.organization_id
+            == current_user.organization_id,
+        )
         .with_for_update()
     )
+
+    inventory = db.scalar(statement)
 
     if inventory is None:
         raise HTTPException(
@@ -220,8 +254,15 @@ def adjust_inventory(
 def delete_inventory(
     inventory_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    inventory = db.get(Inventory, inventory_id)
+    statement = select(Inventory).where(
+        Inventory.id == inventory_id,
+        Inventory.organization_id
+        == current_user.organization_id,
+    )
+
+    inventory = db.scalar(statement)
 
     if inventory is None:
         raise HTTPException(
