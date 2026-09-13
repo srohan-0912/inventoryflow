@@ -2,11 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_db
+from app.api.dependencies import get_current_user, get_db
 from app.models.inventory_movement import (
     InventoryMovement,
     InventoryMovementType,
 )
+from app.models.user import User
 from app.schemas.inventory_movement import InventoryMovementResponse
 
 
@@ -16,12 +17,15 @@ router = APIRouter(
 )
 
 
+# ============================================================
+# GET ALL INVENTORY MOVEMENTS
+# ============================================================
+
 @router.get(
     "/",
     response_model=list[InventoryMovementResponse],
 )
 def get_inventory_movements(
-    organization_id: int | None = Query(default=None),
     product_id: int | None = Query(default=None),
     warehouse_id: int | None = Query(default=None),
     order_id: int | None = Query(default=None),
@@ -29,13 +33,12 @@ def get_inventory_movements(
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    statement = select(InventoryMovement)
-
-    if organization_id is not None:
-        statement = statement.where(
-            InventoryMovement.organization_id == organization_id
-        )
+    statement = select(InventoryMovement).where(
+        InventoryMovement.organization_id
+        == current_user.organization_id
+    )
 
     if product_id is not None:
         statement = statement.where(
@@ -67,6 +70,10 @@ def get_inventory_movements(
     return db.scalars(statement).all()
 
 
+# ============================================================
+# GET SINGLE INVENTORY MOVEMENT
+# ============================================================
+
 @router.get(
     "/{movement_id}",
     response_model=InventoryMovementResponse,
@@ -74,11 +81,15 @@ def get_inventory_movements(
 def get_inventory_movement(
     movement_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    movement = db.get(
-        InventoryMovement,
-        movement_id,
+    statement = select(InventoryMovement).where(
+        InventoryMovement.id == movement_id,
+        InventoryMovement.organization_id
+        == current_user.organization_id,
     )
+
+    movement = db.scalar(statement)
 
     if movement is None:
         raise HTTPException(
