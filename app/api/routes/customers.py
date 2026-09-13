@@ -2,14 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_db
+from app.api.dependencies import get_current_user, get_db
 from app.models.customer import Customer
+from app.models.user import User
 from app.schemas.customer import (
     CustomerCreate,
     CustomerResponse,
     CustomerUpdate,
 )
-
 
 router = APIRouter(
     prefix="/customers",
@@ -25,9 +25,11 @@ router = APIRouter(
 def create_customer(
     customer_data: CustomerCreate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     customer = Customer(
-        **customer_data.model_dump()
+        organization_id=current_user.organization_id,
+        **customer_data.model_dump(),
     )
 
     db.add(customer)
@@ -43,8 +45,16 @@ def create_customer(
 )
 def get_customers(
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    statement = select(Customer).order_by(Customer.id)
+    statement = (
+        select(Customer)
+        .where(
+            Customer.organization_id
+            == current_user.organization_id
+        )
+        .order_by(Customer.id)
+    )
 
     return db.scalars(statement).all()
 
@@ -56,12 +66,19 @@ def get_customers(
 def get_customer(
     customer_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    customer = db.get(Customer, customer_id)
+    statement = select(Customer).where(
+        Customer.id == customer_id,
+        Customer.organization_id
+        == current_user.organization_id,
+    )
+
+    customer = db.scalar(statement)
 
     if customer is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=404,
             detail="Customer not found.",
         )
 
@@ -76,12 +93,19 @@ def update_customer(
     customer_id: int,
     customer_data: CustomerUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    customer = db.get(Customer, customer_id)
+    statement = select(Customer).where(
+        Customer.id == customer_id,
+        Customer.organization_id
+        == current_user.organization_id,
+    )
+
+    customer = db.scalar(statement)
 
     if customer is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=404,
             detail="Customer not found.",
         )
 
@@ -105,12 +129,19 @@ def update_customer(
 def delete_customer(
     customer_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    customer = db.get(Customer, customer_id)
+    statement = select(Customer).where(
+        Customer.id == customer_id,
+        Customer.organization_id
+        == current_user.organization_id,
+    )
+
+    customer = db.scalar(statement)
 
     if customer is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=404,
             detail="Customer not found.",
         )
 

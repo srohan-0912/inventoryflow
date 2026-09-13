@@ -1,51 +1,20 @@
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class CustomerCreate(BaseModel):
-    organization_id: int
-
-    name: str = Field(
-        min_length=1,
-        max_length=150,
-    )
-
-    email: str | None = Field(
-        default=None,
-        max_length=255,
-    )
-
-    phone: str | None = Field(
-        default=None,
-        max_length=30,
-    )
-
-    address: str | None = Field(
-        default=None,
-        max_length=500,
-    )
+    name: str = Field(min_length=1, max_length=150)
+    email: str | None = Field(default=None, max_length=255)
+    phone: str | None = Field(default=None, max_length=30)
+    address: str | None = Field(default=None, max_length=500)
 
 
 class CustomerUpdate(BaseModel):
-    name: str | None = Field(
-        default=None,
-        min_length=1,
-        max_length=150,
-    )
-
-    email: str | None = Field(
-        default=None,
-        max_length=255,
-    )
-
-    phone: str | None = Field(
-        default=None,
-        max_length=30,
-    )
-
-    address: str | None = Field(
-        default=None,
-        max_length=500,
-    )
+    name: str | None = Field(default=None, min_length=1, max_length=150)
+    email: str | None = Field(default=None, max_length=255)
+    phone: str | None = Field(default=None, max_length=30)
+    address: str | None = Field(default=None, max_length=500)
 
 
 class CustomerResponse(BaseModel):
@@ -55,7 +24,7 @@ class CustomerResponse(BaseModel):
     email: str | None
     phone: str | None
     address: str | None
+    created_at: datetime
+    updated_at: datetime
 
-    model_config = ConfigDict(
-        from_attributes=True
-    )
+    model_config = ConfigDict(from_attributes=True)
