@@ -3,14 +3,14 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_db
+from app.api.dependencies import get_current_user, get_db
+from app.models.user import User
 from app.models.warehouse import Warehouse
 from app.schemas.warehouse import (
     WarehouseCreate,
     WarehouseResponse,
     WarehouseUpdate,
 )
-
 
 router = APIRouter(
     prefix="/warehouses",
@@ -26,9 +26,11 @@ router = APIRouter(
 def create_warehouse(
     warehouse_data: WarehouseCreate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     warehouse = Warehouse(
-        **warehouse_data.model_dump()
+        organization_id=current_user.organization_id,
+        **warehouse_data.model_dump(),
     )
 
     db.add(warehouse)
@@ -39,8 +41,8 @@ def create_warehouse(
     except IntegrityError:
         db.rollback()
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Warehouse name already exists for this organization.",
+            status_code=400,
+            detail="Warehouse name already exists.",
         )
 
     return warehouse
@@ -52,8 +54,16 @@ def create_warehouse(
 )
 def get_warehouses(
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    statement = select(Warehouse).order_by(Warehouse.id)
+    statement = (
+        select(Warehouse)
+        .where(
+            Warehouse.organization_id
+            == current_user.organization_id
+        )
+        .order_by(Warehouse.id)
+    )
 
     return db.scalars(statement).all()
 
@@ -65,12 +75,19 @@ def get_warehouses(
 def get_warehouse(
     warehouse_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    warehouse = db.get(Warehouse, warehouse_id)
+    statement = select(Warehouse).where(
+        Warehouse.id == warehouse_id,
+        Warehouse.organization_id
+        == current_user.organization_id,
+    )
+
+    warehouse = db.scalar(statement)
 
     if warehouse is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=404,
             detail="Warehouse not found.",
         )
 
@@ -85,12 +102,19 @@ def update_warehouse(
     warehouse_id: int,
     warehouse_data: WarehouseUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    warehouse = db.get(Warehouse, warehouse_id)
+    statement = select(Warehouse).where(
+        Warehouse.id == warehouse_id,
+        Warehouse.organization_id
+        == current_user.organization_id,
+    )
+
+    warehouse = db.scalar(statement)
 
     if warehouse is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=404,
             detail="Warehouse not found.",
         )
 
@@ -107,8 +131,8 @@ def update_warehouse(
     except IntegrityError:
         db.rollback()
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Warehouse name already exists for this organization.",
+            status_code=400,
+            detail="Warehouse name already exists.",
         )
 
     return warehouse
@@ -121,12 +145,19 @@ def update_warehouse(
 def delete_warehouse(
     warehouse_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    warehouse = db.get(Warehouse, warehouse_id)
+    statement = select(Warehouse).where(
+        Warehouse.id == warehouse_id,
+        Warehouse.organization_id
+        == current_user.organization_id,
+    )
+
+    warehouse = db.scalar(statement)
 
     if warehouse is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=404,
             detail="Warehouse not found.",
         )
 
