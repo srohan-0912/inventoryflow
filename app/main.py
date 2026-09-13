@@ -6,6 +6,8 @@ from app.api.routes.warehouses import router as warehouse_router
 from app.api.routes.customers import router as customer_router
 from app.api.routes.inventory import router as inventory_router
 from app.api.routes.orders import router as order_router
+from app.api.routes.auth import router as auth_router
+
 
 from app.api.routes.inventory_movements import (
     router as inventory_movement_router,
@@ -25,7 +27,7 @@ app.include_router(customer_router)
 app.include_router(inventory_router)
 app.include_router(order_router)
 app.include_router(inventory_movement_router)
-
+app.include_router(auth_router)
 
 @app.get("/")
 def root():

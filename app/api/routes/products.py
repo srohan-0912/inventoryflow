@@ -3,8 +3,9 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_db
+from app.api.dependencies import get_current_user, get_db
 from app.models.product import Product
+from app.models.user import User
 from app.schemas.product import (
     ProductCreate,
     ProductResponse,
@@ -26,9 +27,11 @@ router = APIRouter(
 def create_product(
     product_data: ProductCreate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     product = Product(
-        **product_data.model_dump()
+        organization_id=current_user.organization_id,
+        **product_data.model_dump(),
     )
 
     db.add(product)
@@ -36,11 +39,13 @@ def create_product(
     try:
         db.commit()
         db.refresh(product)
+
     except IntegrityError:
         db.rollback()
+
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="SKU already exists for this organization.",
+            status_code=400,
+            detail="Product SKU already exists.",
         )
 
     return product
@@ -52,12 +57,18 @@ def create_product(
 )
 def get_products(
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    statement = select(Product).order_by(Product.id)
+    statement = (
+        select(Product)
+        .where(
+            Product.organization_id
+            == current_user.organization_id
+        )
+        .order_by(Product.id)
+    )
 
-    products = db.scalars(statement).all()
-
-    return products
+    return db.scalars(statement).all()
 
 
 @router.get(
@@ -67,12 +78,19 @@ def get_products(
 def get_product(
     product_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    product = db.get(Product, product_id)
+    statement = select(Product).where(
+        Product.id == product_id,
+        Product.organization_id
+        == current_user.organization_id,
+    )
+
+    product = db.scalar(statement)
 
     if product is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=404,
             detail="Product not found.",
         )
 
@@ -87,12 +105,19 @@ def update_product(
     product_id: int,
     product_data: ProductUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    product = db.get(Product, product_id)
+    statement = select(Product).where(
+        Product.id == product_id,
+        Product.organization_id
+        == current_user.organization_id,
+    )
+
+    product = db.scalar(statement)
 
     if product is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=404,
             detail="Product not found.",
         )
 
@@ -106,11 +131,13 @@ def update_product(
     try:
         db.commit()
         db.refresh(product)
+
     except IntegrityError:
         db.rollback()
+
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="SKU already exists for this organization.",
+            status_code=400,
+            detail="Product SKU already exists.",
         )
 
     return product
@@ -123,12 +150,19 @@ def update_product(
 def delete_product(
     product_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    product = db.get(Product, product_id)
+    statement = select(Product).where(
+        Product.id == product_id,
+        Product.organization_id
+        == current_user.organization_id,
+    )
+
+    product = db.scalar(statement)
 
     if product is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=404,
             detail="Product not found.",
         )
 

@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_db
+from app.api.dependencies import get_current_user, get_db
 from app.models.organization import Organization
+from app.models.user import User
 from app.schemas.organization import (
     OrganizationCreate,
     OrganizationResponse,
@@ -14,6 +15,21 @@ router = APIRouter(
     prefix="/organizations",
     tags=["Organizations"],
 )
+
+
+@router.get(
+    "/",
+    response_model=list[OrganizationResponse],
+)
+def get_organizations(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    statement = select(Organization).where(
+        Organization.id == current_user.organization_id
+    )
+
+    return db.scalars(statement).all()
 
 
 @router.post(
@@ -34,15 +50,3 @@ def create_organization(
     db.refresh(organization)
 
     return organization
-
-
-@router.get(
-    "/",
-    response_model=list[OrganizationResponse],
-)
-def get_organizations(
-    db: Session = Depends(get_db),
-):
-    statement = select(Organization).order_by(Organization.id)
-
-    return db.scalars(statement).all()
