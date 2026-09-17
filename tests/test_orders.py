@@ -911,3 +911,108 @@ def test_ship_multi_item_order_updates_all_inventory_and_movements(
 
     finally:
         app.dependency_overrides.clear()
+
+        
+def test_cannot_ship_same_order_twice(client, db_session):
+    organization, customer, warehouse, product, inventory = (
+        create_order_test_data(db_session, quantity=20)
+    )
+
+    authenticate_as(UserRole.OWNER, organization.id)
+
+    try:
+        # Create and confirm the order.
+        create_response = create_order(
+            client, customer, warehouse, product, quantity=3
+        )
+        assert create_response.status_code == 201
+        order_id = create_response.json()["id"]
+
+        confirm_response = client.post(
+            f"/orders/{order_id}/confirm"
+        )
+        assert confirm_response.status_code == 200
+
+        # First shipment should succeed.
+        first_ship_response = client.post(
+            f"/orders/{order_id}/ship"
+        )
+        assert first_ship_response.status_code == 200
+        assert first_ship_response.json()["status"] == "SHIPPED"
+
+        # Second shipment should be rejected.
+        second_ship_response = client.post(
+            f"/orders/{order_id}/ship"
+        )
+        assert second_ship_response.status_code == 400
+        assert second_ship_response.json()["detail"] == (
+            "Only confirmed orders can be shipped."
+        )
+
+        # Inventory must only be deducted once.
+        db_session.refresh(inventory)
+        assert inventory.quantity == 17
+        assert inventory.reserved_quantity == 0
+
+        # Exactly one SALE movement must exist.
+        movements = db_session.scalars(
+            select(InventoryMovement).where(
+                InventoryMovement.order_id == order_id
+            )
+        ).all()
+
+        assert len(movements) == 1
+        assert movements[0].movement_type == (
+            InventoryMovementType.SALE
+        )
+        assert movements[0].quantity == -3
+
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_cannot_ship_cancelled_order(client, db_session):
+    organization, customer, warehouse, product, inventory = (
+        create_order_test_data(db_session, quantity=20)
+    )
+
+    authenticate_as(UserRole.OWNER, organization.id)
+
+    try:
+        # Create and cancel the pending order.
+        create_response = create_order(
+            client, customer, warehouse, product, quantity=3
+        )
+        assert create_response.status_code == 201
+        order_id = create_response.json()["id"]
+
+        cancel_response = client.post(
+            f"/orders/{order_id}/cancel"
+        )
+        assert cancel_response.status_code == 200
+        assert cancel_response.json()["status"] == "CANCELLED"
+
+        # Shipping a cancelled order must fail.
+        ship_response = client.post(
+            f"/orders/{order_id}/ship"
+        )
+        assert ship_response.status_code == 400
+        assert ship_response.json()["detail"] == (
+            "Only confirmed orders can be shipped."
+        )
+
+        # Inventory and movements must remain unchanged.
+        db_session.refresh(inventory)
+        assert inventory.quantity == 20
+        assert inventory.reserved_quantity == 0
+
+        movements = db_session.scalars(
+            select(InventoryMovement).where(
+                InventoryMovement.order_id == order_id
+            )
+        ).all()
+
+        assert len(movements) == 0
+
+    finally:
+        app.dependency_overrides.clear()
