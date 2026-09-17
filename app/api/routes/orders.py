@@ -23,6 +23,58 @@ router = APIRouter(prefix="/orders", tags=["Orders"])
 
 
 # ============================================================
+# INVENTORY LOCKING HELPER
+# ============================================================
+
+def lock_order_inventory(
+    db: Session,
+    order: Order,
+    organization_id: int,
+) -> dict[int, Inventory]:
+    """
+    Lock inventory rows in ascending product_id order.
+
+    This helps reduce deadlock risk when concurrent orders
+    affect multiple inventory records.
+    """
+
+    product_ids = sorted(
+        {item.product_id for item in order.items}
+    )
+
+    if not product_ids:
+        return {}
+
+    inventories = db.scalars(
+        select(Inventory)
+        .where(
+            Inventory.organization_id == organization_id,
+            Inventory.warehouse_id == order.warehouse_id,
+            Inventory.product_id.in_(product_ids),
+        )
+        .order_by(Inventory.product_id)
+        .with_for_update()
+    ).all()
+
+    inventory_by_product = {
+        inventory.product_id: inventory
+        for inventory in inventories
+    }
+
+    for product_id in product_ids:
+        if product_id not in inventory_by_product:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    "Inventory not found for "
+                    f"product {product_id}."
+                ),
+            )
+
+    return inventory_by_product
+
+
+# ============================================================
 # CREATE ORDER
 # OWNER, ADMIN, MANAGER
 # ============================================================
@@ -241,26 +293,15 @@ def confirm_order(
         )
 
     try:
-        for item in order.items:
-            inventory = db.scalar(
-                select(Inventory)
-                .where(
-                    Inventory.organization_id
-                    == current_user.organization_id,
-                    Inventory.product_id == item.product_id,
-                    Inventory.warehouse_id == order.warehouse_id,
-                )
-                .with_for_update()
-            )
+        inventory_by_product = lock_order_inventory(
+            db,
+            order,
+            current_user.organization_id,
+        )
 
-            if inventory is None:
-                raise HTTPException(
-                    status_code=404,
-                    detail=(
-                        "Inventory not found for "
-                        f"product {item.product_id}."
-                    ),
-                )
+        # Validate every item before reserving anything.
+        for item in order.items:
+            inventory = inventory_by_product[item.product_id]
 
             available_quantity = (
                 inventory.quantity
@@ -278,6 +319,9 @@ def confirm_order(
                     ),
                 )
 
+        # Reserve inventory only after all checks pass.
+        for item in order.items:
+            inventory = inventory_by_product[item.product_id]
             inventory.reserved_quantity += item.quantity
 
         order.status = OrderStatus.CONFIRMED
@@ -343,26 +387,15 @@ def cancel_order(
 
     try:
         if order.status == OrderStatus.CONFIRMED:
-            for item in order.items:
-                inventory = db.scalar(
-                    select(Inventory)
-                    .where(
-                        Inventory.organization_id
-                        == current_user.organization_id,
-                        Inventory.product_id == item.product_id,
-                        Inventory.warehouse_id == order.warehouse_id,
-                    )
-                    .with_for_update()
-                )
+            inventory_by_product = lock_order_inventory(
+                db,
+                order,
+                current_user.organization_id,
+            )
 
-                if inventory is None:
-                    raise HTTPException(
-                        status_code=404,
-                        detail=(
-                            "Inventory not found for "
-                            f"product {item.product_id}."
-                        ),
-                    )
+            # Validate every reservation before releasing any.
+            for item in order.items:
+                inventory = inventory_by_product[item.product_id]
 
                 if inventory.reserved_quantity < item.quantity:
                     raise HTTPException(
@@ -373,6 +406,9 @@ def cancel_order(
                         ),
                     )
 
+            # Release reservations after validation.
+            for item in order.items:
+                inventory = inventory_by_product[item.product_id]
                 inventory.reserved_quantity -= item.quantity
 
         order.status = OrderStatus.CANCELLED
@@ -434,26 +470,15 @@ def ship_order(
         )
 
     try:
-        for item in order.items:
-            inventory = db.scalar(
-                select(Inventory)
-                .where(
-                    Inventory.organization_id
-                    == current_user.organization_id,
-                    Inventory.product_id == item.product_id,
-                    Inventory.warehouse_id == order.warehouse_id,
-                )
-                .with_for_update()
-            )
+        inventory_by_product = lock_order_inventory(
+            db,
+            order,
+            current_user.organization_id,
+        )
 
-            if inventory is None:
-                raise HTTPException(
-                    status_code=404,
-                    detail=(
-                        "Inventory not found for "
-                        f"product {item.product_id}."
-                    ),
-                )
+        # Validate every item before changing stock.
+        for item in order.items:
+            inventory = inventory_by_product[item.product_id]
 
             if inventory.reserved_quantity < item.quantity:
                 raise HTTPException(
@@ -472,6 +497,10 @@ def ship_order(
                         f"product {item.product_id}."
                     ),
                 )
+
+        # Deduct stock and create movements after validation.
+        for item in order.items:
+            inventory = inventory_by_product[item.product_id]
 
             inventory.quantity -= item.quantity
             inventory.reserved_quantity -= item.quantity
