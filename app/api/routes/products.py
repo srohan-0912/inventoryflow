@@ -1,5 +1,4 @@
-
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -21,7 +20,11 @@ router = APIRouter(
 )
 
 
-# Create product: OWNER, ADMIN, MANAGER only
+# ============================================================
+# CREATE PRODUCT
+# OWNER, ADMIN, MANAGER
+# ============================================================
+
 @router.post(
     "/",
     response_model=ProductResponse,
@@ -60,12 +63,19 @@ def create_product(
     return product
 
 
-# List products: any authenticated user in the organization
+# ============================================================
+# GET ALL PRODUCTS
+# ALL AUTHENTICATED USERS
+# PAGINATION: skip and limit
+# ============================================================
+
 @router.get(
     "/",
     response_model=list[ProductResponse],
 )
 def get_products(
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=10, ge=1, le=100),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -76,12 +86,18 @@ def get_products(
             == current_user.organization_id
         )
         .order_by(Product.id)
+        .offset(skip)
+        .limit(limit)
     )
 
     return db.scalars(statement).all()
 
 
-# Get one product
+# ============================================================
+# GET SINGLE PRODUCT
+# ALL AUTHENTICATED USERS
+# ============================================================
+
 @router.get(
     "/{product_id}",
     response_model=ProductResponse,
@@ -108,7 +124,11 @@ def get_product(
     return product
 
 
-# Update product: any authenticated user for now
+# ============================================================
+# UPDATE PRODUCT
+# ANY AUTHENTICATED USER FOR NOW
+# ============================================================
+
 @router.put(
     "/{product_id}",
     response_model=ProductResponse,
@@ -155,7 +175,11 @@ def update_product(
     return product
 
 
-# Delete product: any authenticated user for now
+# ============================================================
+# DELETE PRODUCT
+# ANY AUTHENTICATED USER FOR NOW
+# ============================================================
+
 @router.delete(
     "/{product_id}",
     status_code=status.HTTP_204_NO_CONTENT,
