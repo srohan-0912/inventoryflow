@@ -1,6 +1,9 @@
 
+import pytest
+
 from app.main import app
 from app.api.dependencies import get_current_user
+from app.api.permissions import require_roles
 from app.models.user import User, UserRole
 
 
@@ -69,3 +72,23 @@ def test_staff_cannot_delete_product(client):
         assert response.status_code == 403
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.mark.parametrize(
+    "role",
+    [
+        UserRole.OWNER,
+        UserRole.ADMIN,
+        UserRole.MANAGER,
+    ],
+)
+def test_authorized_roles_pass_product_write_permission(role):
+    permission_check = require_roles(
+        UserRole.OWNER,
+        UserRole.ADMIN,
+        UserRole.MANAGER,
+    )
+
+    user = fake_user(role)
+
+    assert permission_check(user) == user
