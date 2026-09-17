@@ -423,3 +423,94 @@ def test_cannot_access_another_organizations_inventory(
 
     finally:
         app.dependency_overrides.clear()
+
+        
+# ============================================================
+# CROSS-TENANT INVENTORY CREATION TESTS
+# ============================================================
+
+def test_cannot_create_inventory_with_another_organizations_product(
+    client,
+    db_session,
+):
+    organization1, product1, warehouse1 = create_inventory_test_data(
+        db_session
+    )
+
+    organization2 = Organization(name="Second Organization")
+    db_session.add(organization2)
+    db_session.flush()
+
+    product2 = Product(
+        organization_id=organization2.id,
+        sku="FOREIGN-SKU-001",
+        name="Foreign Product",
+        description="Belongs to another organization",
+        price=Decimal("50.00"),
+        is_active=True,
+    )
+    db_session.add(product2)
+    db_session.flush()
+
+    authenticate_as(UserRole.OWNER, organization1.id)
+
+    try:
+        response = client.post(
+            "/inventory/",
+            json={
+                "product_id": product2.id,
+                "warehouse_id": warehouse1.id,
+                "quantity": 10,
+                "reserved_quantity": 0,
+            },
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == (
+            "Product not found in your organization."
+        )
+
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_cannot_create_inventory_with_another_organizations_warehouse(
+    client,
+    db_session,
+):
+    organization1, product1, warehouse1 = create_inventory_test_data(
+        db_session
+    )
+
+    organization2 = Organization(name="Third Organization")
+    db_session.add(organization2)
+    db_session.flush()
+
+    warehouse2 = Warehouse(
+        organization_id=organization2.id,
+        name="Foreign Warehouse",
+        location="Another Location",
+    )
+    db_session.add(warehouse2)
+    db_session.flush()
+
+    authenticate_as(UserRole.OWNER, organization1.id)
+
+    try:
+        response = client.post(
+            "/inventory/",
+            json={
+                "product_id": product1.id,
+                "warehouse_id": warehouse2.id,
+                "quantity": 10,
+                "reserved_quantity": 0,
+            },
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == (
+            "Warehouse not found in your organization."
+        )
+
+    finally:
+        app.dependency_overrides.clear()
