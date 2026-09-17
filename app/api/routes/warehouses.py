@@ -1,5 +1,4 @@
-
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -21,7 +20,11 @@ router = APIRouter(
 )
 
 
-# Create warehouse: OWNER, ADMIN, MANAGER
+# ============================================================
+# CREATE WAREHOUSE
+# OWNER, ADMIN, MANAGER
+# ============================================================
+
 @router.post(
     "/",
     response_model=WarehouseResponse,
@@ -48,8 +51,10 @@ def create_warehouse(
     try:
         db.commit()
         db.refresh(warehouse)
+
     except IntegrityError:
         db.rollback()
+
         raise HTTPException(
             status_code=400,
             detail="Warehouse name already exists.",
@@ -58,12 +63,19 @@ def create_warehouse(
     return warehouse
 
 
-# List warehouses: all authenticated roles
+# ============================================================
+# GET ALL WAREHOUSES
+# ALL AUTHENTICATED USERS
+# PAGINATION: skip and limit
+# ============================================================
+
 @router.get(
     "/",
     response_model=list[WarehouseResponse],
 )
 def get_warehouses(
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=10, ge=1, le=100),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -74,12 +86,18 @@ def get_warehouses(
             == current_user.organization_id
         )
         .order_by(Warehouse.id)
+        .offset(skip)
+        .limit(limit)
     )
 
     return db.scalars(statement).all()
 
 
-# Get one warehouse: all authenticated roles
+# ============================================================
+# GET SINGLE WAREHOUSE
+# ALL AUTHENTICATED USERS
+# ============================================================
+
 @router.get(
     "/{warehouse_id}",
     response_model=WarehouseResponse,
@@ -106,7 +124,11 @@ def get_warehouse(
     return warehouse
 
 
-# Update warehouse: OWNER, ADMIN, MANAGER
+# ============================================================
+# UPDATE WAREHOUSE
+# OWNER, ADMIN, MANAGER
+# ============================================================
+
 @router.put(
     "/{warehouse_id}",
     response_model=WarehouseResponse,
@@ -147,8 +169,10 @@ def update_warehouse(
     try:
         db.commit()
         db.refresh(warehouse)
+
     except IntegrityError:
         db.rollback()
+
         raise HTTPException(
             status_code=400,
             detail="Warehouse name already exists.",
@@ -157,7 +181,11 @@ def update_warehouse(
     return warehouse
 
 
-# Delete warehouse: OWNER, ADMIN, MANAGER
+# ============================================================
+# DELETE WAREHOUSE
+# OWNER, ADMIN, MANAGER
+# ============================================================
+
 @router.delete(
     "/{warehouse_id}",
     status_code=status.HTTP_204_NO_CONTENT,
