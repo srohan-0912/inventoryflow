@@ -18,6 +18,7 @@ from app.models.order import Order, OrderStatus
 from app.models.user import User, UserRole
 from sqlalchemy import select
 
+
 # ============================================================
 # HELPERS
 # ============================================================
@@ -401,8 +402,6 @@ def test_confirm_order_rejects_insufficient_inventory(
             confirm_response.json()["detail"]
         )
 
-        # The conftest db_session must use join_transaction_mode="create_savepoint"
-        # so the route's rollback does not destroy this test's outer transaction.
         db_session.refresh(inventory)
         assert inventory.quantity == 3
         assert inventory.reserved_quantity == 0
@@ -410,10 +409,10 @@ def test_confirm_order_rejects_insufficient_inventory(
     finally:
         app.dependency_overrides.clear()
 
+
 # ============================================================
 # REMAINING ORDER LIFECYCLE TESTS
 # ============================================================
-
 
 def test_cancel_pending_order(client, db_session):
     organization, customer, warehouse, product, inventory = (
@@ -655,6 +654,141 @@ def test_cannot_cancel_shipped_order(client, db_session):
         assert cancel_response.json()["detail"] == (
             "This order cannot be cancelled."
         )
+
+    finally:
+        app.dependency_overrides.clear()
+
+
+# ============================================================
+# MULTI-ITEM ORDER TESTS
+# ============================================================
+
+def test_create_multi_item_order_calculates_total(client, db_session):
+    organization, customer, warehouse, product, inventory = (
+        create_order_test_data(db_session)
+    )
+
+    # Use the generated organization ID, not a hardcoded ID.
+    authenticate_as(UserRole.OWNER, organization_id=organization.id)
+
+    try:
+        second_product = Product(
+            organization_id=organization.id,
+            sku="ORDER-SKU-002",
+            name="Second Order Product",
+            description="Second product for multi-item tests",
+            price=Decimal("25.00"),
+            is_active=True,
+        )
+        db_session.add(second_product)
+        db_session.flush()
+
+        response = client.post(
+            "/orders/",
+            json={
+                "customer_id": customer.id,
+                "warehouse_id": warehouse.id,
+                "items": [
+                    {"product_id": product.id, "quantity": 2},
+                    {"product_id": second_product.id, "quantity": 3},
+                ],
+            },
+        )
+
+        assert response.status_code == 201, response.json()
+
+        data = response.json()
+
+        assert Decimal(str(data["total_amount"])) == Decimal("275.00")
+        assert len(data["items"]) == 2
+
+        items_by_product = {
+            item["product_id"]: item for item in data["items"]
+        }
+
+        assert Decimal(
+            str(items_by_product[product.id]["subtotal"])
+        ) == Decimal("200.00")
+
+        assert Decimal(
+            str(items_by_product[second_product.id]["subtotal"])
+        ) == Decimal("75.00")
+
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_multi_item_confirmation_failure_rolls_back_all_reservations(
+    client, db_session
+):
+    organization, customer, warehouse, product, inventory = (
+        create_order_test_data(db_session, quantity=20)
+    )
+
+    # Use the generated organization ID, not a hardcoded ID.
+    authenticate_as(UserRole.OWNER, organization_id=organization.id)
+
+    try:
+        second_product = Product(
+            organization_id=organization.id,
+            sku="ORDER-SKU-003",
+            name="Limited Stock Product",
+            description="Product with limited stock",
+            price=Decimal("25.00"),
+            is_active=True,
+        )
+        db_session.add(second_product)
+        db_session.flush()
+
+        second_inventory = Inventory(
+            organization_id=organization.id,
+            product_id=second_product.id,
+            warehouse_id=warehouse.id,
+            quantity=2,
+            reserved_quantity=0,
+        )
+        db_session.add(second_inventory)
+        db_session.flush()
+
+        order_response = client.post(
+            "/orders/",
+            json={
+                "customer_id": customer.id,
+                "warehouse_id": warehouse.id,
+                "items": [
+                    {"product_id": product.id, "quantity": 4},
+                    {"product_id": second_product.id, "quantity": 3},
+                ],
+            },
+        )
+
+        assert order_response.status_code == 201, order_response.json()
+
+        order_id = order_response.json()["id"]
+
+        confirm_response = client.post(
+            f"/orders/{order_id}/confirm"
+        )
+
+        assert confirm_response.status_code == 400
+        assert "Insufficient inventory" in (
+            confirm_response.json()["detail"]
+        )
+
+        db_session.refresh(inventory)
+        db_session.refresh(second_inventory)
+
+        # Failed confirmation must not leave partial reservations.
+        assert inventory.quantity == 20
+        assert inventory.reserved_quantity == 0
+
+        assert second_inventory.quantity == 2
+        assert second_inventory.reserved_quantity == 0
+
+        order = db_session.get(Order, order_id)
+        db_session.refresh(order)
+
+        assert order.status == OrderStatus.PENDING
 
     finally:
         app.dependency_overrides.clear()
