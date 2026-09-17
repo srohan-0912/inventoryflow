@@ -711,3 +711,194 @@ def test_zero_inventory_adjustment_records_zero_movement(
 
     finally:
         app.dependency_overrides.clear()
+
+        
+# ============================================================
+# ADDITIONAL TENANT ISOLATION TESTS
+# ============================================================
+
+def test_list_inventory_returns_only_own_organization(
+    client,
+    db_session,
+):
+    org1, product1, warehouse1 = create_inventory_test_data(
+        db_session
+    )
+
+    org2 = Organization(name="Second Inventory Organization")
+    db_session.add(org2)
+    db_session.flush()
+
+    product2 = Product(
+        organization_id=org2.id,
+        sku="ORG2-SKU-001",
+        name="Organization Two Product",
+        description="Private product",
+        price=Decimal("200.00"),
+        is_active=True,
+    )
+
+    warehouse2 = Warehouse(
+        organization_id=org2.id,
+        name="Organization Two Warehouse",
+        location="Private Location",
+    )
+
+    db_session.add_all([product2, warehouse2])
+    db_session.flush()
+
+    inventory1 = create_inventory_record(
+        db_session, org1, product1, warehouse1,
+        quantity=20, reserved_quantity=5,
+    )
+
+    inventory2 = create_inventory_record(
+        db_session, org2, product2, warehouse2,
+        quantity=99, reserved_quantity=0,
+    )
+
+    authenticate_as(UserRole.STAFF, org1.id)
+
+    try:
+        response = client.get("/inventory/")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert len(data) == 1
+        assert data[0]["id"] == inventory1.id
+        assert data[0]["organization_id"] == org1.id
+        assert data[0]["id"] != inventory2.id
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_cannot_update_another_organizations_inventory(
+    client,
+    db_session,
+):
+    org1, product, warehouse = create_inventory_test_data(
+        db_session
+    )
+
+    inventory = create_inventory_record(
+        db_session,
+        org1,
+        product,
+        warehouse,
+        quantity=25,
+        reserved_quantity=5,
+    )
+
+    inventory_id = inventory.id
+
+    org2 = Organization(name="Unauthorized Update Organization")
+    db_session.add(org2)
+    db_session.flush()
+
+    authenticate_as(UserRole.OWNER, org2.id)
+
+    try:
+        response = client.put(
+            f"/inventory/{inventory_id}",
+            json={"quantity": 999},
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Inventory not found."
+
+        db_session.refresh(inventory)
+        assert inventory.quantity == 25
+        assert inventory.reserved_quantity == 5
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_cannot_adjust_another_organizations_inventory(
+    client,
+    db_session,
+):
+    org1, product, warehouse = create_inventory_test_data(
+        db_session
+    )
+
+    inventory = create_inventory_record(
+        db_session,
+        org1,
+        product,
+        warehouse,
+        quantity=25,
+        reserved_quantity=5,
+    )
+
+    inventory_id = inventory.id
+
+    org2 = Organization(name="Unauthorized Adjustment Organization")
+    db_session.add(org2)
+    db_session.flush()
+
+    authenticate_as(UserRole.OWNER, org2.id)
+
+    try:
+        response = client.patch(
+            f"/inventory/{inventory_id}/adjust",
+            json={"quantity_change": 10},
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Inventory not found."
+
+        db_session.refresh(inventory)
+        assert inventory.quantity == 25
+
+        movement_count = (
+            db_session.query(InventoryMovement)
+            .filter_by(
+                organization_id=org1.id,
+                product_id=product.id,
+                warehouse_id=warehouse.id,
+            )
+            .count()
+        )
+
+        assert movement_count == 0
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_cannot_delete_another_organizations_inventory(
+    client,
+    db_session,
+):
+    org1, product, warehouse = create_inventory_test_data(
+        db_session
+    )
+
+    inventory = create_inventory_record(
+        db_session,
+        org1,
+        product,
+        warehouse,
+        quantity=25,
+        reserved_quantity=5,
+    )
+
+    inventory_id = inventory.id
+
+    org2 = Organization(name="Unauthorized Delete Organization")
+    db_session.add(org2)
+    db_session.flush()
+
+    authenticate_as(UserRole.OWNER, org2.id)
+
+    try:
+        response = client.delete(
+            f"/inventory/{inventory_id}"
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Inventory not found."
+
+        assert db_session.get(Inventory, inventory_id) is not None
+    finally:
+        app.dependency_overrides.clear()
