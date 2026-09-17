@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_db
+from app.api.dependencies import get_current_user, get_db
 from app.models.customer import Customer
 from app.models.inventory import Inventory
 from app.models.inventory_movement import (
@@ -11,6 +11,7 @@ from app.models.inventory_movement import (
 )
 from app.models.order import Order, OrderItem, OrderStatus
 from app.models.product import Product
+from app.models.user import User
 from app.models.warehouse import Warehouse
 from app.schemas.order import OrderCreate, OrderResponse
 
@@ -30,11 +31,21 @@ router = APIRouter(prefix="/orders", tags=["Orders"])
 def create_order(
     order_data: OrderCreate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
+    organization_id = current_user.organization_id
+
     # Check customer
     customer = db.get(Customer, order_data.customer_id)
 
     if customer is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Customer not found.",
+        )
+
+    # Customer must belong to current user's organization
+    if customer.organization_id != organization_id:
         raise HTTPException(
             status_code=404,
             detail="Customer not found.",
@@ -49,18 +60,11 @@ def create_order(
             detail="Warehouse not found.",
         )
 
-    # Check customer organization
-    if customer.organization_id != order_data.organization_id:
+    # Warehouse must belong to current user's organization
+    if warehouse.organization_id != organization_id:
         raise HTTPException(
-            status_code=400,
-            detail="Customer does not belong to this organization.",
-        )
-
-    # Check warehouse organization
-    if warehouse.organization_id != order_data.organization_id:
-        raise HTTPException(
-            status_code=400,
-            detail="Warehouse does not belong to this organization.",
+            status_code=404,
+            detail="Warehouse not found.",
         )
 
     # Order must contain at least one item
@@ -72,7 +76,7 @@ def create_order(
 
     # Create order
     order = Order(
-        organization_id=order_data.organization_id,
+        organization_id=organization_id,
         customer_id=order_data.customer_id,
         warehouse_id=order_data.warehouse_id,
         status=OrderStatus.PENDING,
@@ -96,15 +100,12 @@ def create_order(
                 detail=f"Product {item_data.product_id} not found.",
             )
 
-        # Product must belong to same organization
-        if product.organization_id != order_data.organization_id:
+        # Product must belong to current user's organization
+        if product.organization_id != organization_id:
             db.rollback()
             raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"Product {item_data.product_id} "
-                    "does not belong to this organization."
-                ),
+                status_code=404,
+                detail=f"Product {item_data.product_id} not found.",
             )
 
         # Product must be active
@@ -149,8 +150,16 @@ def create_order(
 )
 def get_orders(
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    statement = select(Order).order_by(Order.id)
+    statement = (
+        select(Order)
+        .where(
+            Order.organization_id
+            == current_user.organization_id
+        )
+        .order_by(Order.id)
+    )
 
     return db.scalars(statement).all()
 
@@ -166,8 +175,15 @@ def get_orders(
 def get_order(
     order_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    order = db.get(Order, order_id)
+    statement = select(Order).where(
+        Order.id == order_id,
+        Order.organization_id
+        == current_user.organization_id,
+    )
+
+    order = db.scalar(statement)
 
     if order is None:
         raise HTTPException(
@@ -189,11 +205,16 @@ def get_order(
 def confirm_order(
     order_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     # Lock the order row
     order = db.scalar(
         select(Order)
-        .where(Order.id == order_id)
+        .where(
+            Order.id == order_id,
+            Order.organization_id
+            == current_user.organization_id,
+        )
         .with_for_update()
     )
 
@@ -216,7 +237,8 @@ def confirm_order(
         inventory = db.scalar(
             select(Inventory)
             .where(
-                Inventory.organization_id == order.organization_id,
+                Inventory.organization_id
+                == current_user.organization_id,
                 Inventory.product_id == item.product_id,
                 Inventory.warehouse_id == order.warehouse_id,
             )
@@ -273,11 +295,16 @@ def confirm_order(
 def cancel_order(
     order_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     # Lock the order row
     order = db.scalar(
         select(Order)
-        .where(Order.id == order_id)
+        .where(
+            Order.id == order_id,
+            Order.organization_id
+            == current_user.organization_id,
+        )
         .with_for_update()
     )
 
@@ -305,7 +332,8 @@ def cancel_order(
             inventory = db.scalar(
                 select(Inventory)
                 .where(
-                    Inventory.organization_id == order.organization_id,
+                    Inventory.organization_id
+                    == current_user.organization_id,
                     Inventory.product_id == item.product_id,
                     Inventory.warehouse_id == order.warehouse_id,
                 )
@@ -354,11 +382,16 @@ def cancel_order(
 def ship_order(
     order_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     # Lock the order row
     order = db.scalar(
         select(Order)
-        .where(Order.id == order_id)
+        .where(
+            Order.id == order_id,
+            Order.organization_id
+            == current_user.organization_id,
+        )
         .with_for_update()
     )
 
@@ -381,7 +414,8 @@ def ship_order(
         inventory = db.scalar(
             select(Inventory)
             .where(
-                Inventory.organization_id == order.organization_id,
+                Inventory.organization_id
+                == current_user.organization_id,
                 Inventory.product_id == item.product_id,
                 Inventory.warehouse_id == order.warehouse_id,
             )
@@ -455,11 +489,16 @@ def ship_order(
 def complete_order(
     order_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     # Lock the order row
     order = db.scalar(
         select(Order)
-        .where(Order.id == order_id)
+        .where(
+            Order.id == order_id,
+            Order.organization_id
+            == current_user.organization_id,
+        )
         .with_for_update()
     )
 
