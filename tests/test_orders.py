@@ -792,3 +792,122 @@ def test_multi_item_confirmation_failure_rolls_back_all_reservations(
 
     finally:
         app.dependency_overrides.clear()
+        
+def test_ship_multi_item_order_updates_all_inventory_and_movements(
+    client, db_session
+):
+    (
+        organization,
+        customer,
+        warehouse,
+        product,
+        inventory,
+    ) = create_order_test_data(db_session, quantity=20)
+
+    second_product = Product(
+        organization_id=organization.id,
+        sku="ORDER-SKU-SHIP-002",
+        name="Second Shipping Product",
+        description="Second product for shipping tests",
+        price=Decimal("25.00"),
+        is_active=True,
+    )
+    db_session.add(second_product)
+    db_session.flush()
+
+    second_inventory = Inventory(
+        organization_id=organization.id,
+        product_id=second_product.id,
+        warehouse_id=warehouse.id,
+        quantity=10,
+        reserved_quantity=0,
+    )
+    db_session.add(second_inventory)
+    db_session.flush()
+
+    authenticate_as(UserRole.OWNER, organization.id)
+
+    try:
+        # Create an order containing two products.
+        order_response = client.post(
+            "/orders/",
+            json={
+                "customer_id": customer.id,
+                "warehouse_id": warehouse.id,
+                "items": [
+                    {"product_id": product.id, "quantity": 3},
+                    {"product_id": second_product.id, "quantity": 2},
+                ],
+            },
+        )
+
+        assert order_response.status_code == 201
+        order_id = order_response.json()["id"]
+
+        # Confirm the order, reserving stock for both products.
+        confirm_response = client.post(
+            f"/orders/{order_id}/confirm"
+        )
+        assert confirm_response.status_code == 200
+        assert confirm_response.json()["status"] == "CONFIRMED"
+
+        db_session.refresh(inventory)
+        db_session.refresh(second_inventory)
+
+        assert inventory.quantity == 20
+        assert inventory.reserved_quantity == 3
+
+        assert second_inventory.quantity == 10
+        assert second_inventory.reserved_quantity == 2
+
+        # Ship the order.
+        ship_response = client.post(
+            f"/orders/{order_id}/ship"
+        )
+
+        assert ship_response.status_code == 200
+        assert ship_response.json()["status"] == "SHIPPED"
+
+        # Verify stock was deducted and reservations released.
+        db_session.refresh(inventory)
+        db_session.refresh(second_inventory)
+
+        assert inventory.quantity == 17
+        assert inventory.reserved_quantity == 0
+
+        assert second_inventory.quantity == 8
+        assert second_inventory.reserved_quantity == 0
+
+        # Verify one SALE movement per product for this order.
+        movements = db_session.scalars(
+            select(InventoryMovement).where(
+                InventoryMovement.order_id == order_id
+            )
+        ).all()
+
+        assert len(movements) == 2
+
+        movements_by_product = {
+            movement.product_id: movement
+            for movement in movements
+        }
+
+        assert set(movements_by_product) == {
+            product.id,
+            second_product.id,
+        }
+
+        assert (
+            movements_by_product[product.id].movement_type
+            == InventoryMovementType.SALE
+        )
+        assert movements_by_product[product.id].quantity == -3
+
+        assert (
+            movements_by_product[second_product.id].movement_type
+            == InventoryMovementType.SALE
+        )
+        assert movements_by_product[second_product.id].quantity == -2
+
+    finally:
+        app.dependency_overrides.clear()
