@@ -1055,3 +1055,47 @@ def test_create_order_rejects_duplicate_product_items(
 
     finally:
         app.dependency_overrides.clear()
+
+        
+def test_create_order_with_inactive_product_does_not_persist_order(
+    client, db_session
+):
+    organization, customer, warehouse, product, inventory = (
+        create_order_test_data(db_session)
+    )
+
+    authenticate_as(UserRole.OWNER, organization.id)
+
+    try:
+        product.is_active = False
+        db_session.flush()
+
+        orders_before = db_session.scalars(
+            select(Order).where(
+                Order.organization_id == organization.id
+            )
+        ).all()
+
+        response = create_order(
+            client,
+            customer,
+            warehouse,
+            product,
+            quantity=2,
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == (
+            f"Product {product.id} is inactive."
+        )
+
+        orders_after = db_session.scalars(
+            select(Order).where(
+                Order.organization_id == organization.id
+            )
+        ).all()
+
+        assert len(orders_after) == len(orders_before)
+
+    finally:
+        app.dependency_overrides.clear()
