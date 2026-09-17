@@ -514,3 +514,200 @@ def test_cannot_create_inventory_with_another_organizations_warehouse(
 
     finally:
         app.dependency_overrides.clear()
+
+        
+# ============================================================
+# INVENTORY ADJUSTMENT EDGE-CASE TESTS
+# ============================================================
+
+
+def test_adjust_inventory_decrease_successfully(client, db_session):
+    organization, product, warehouse = (
+        create_inventory_test_data(db_session)
+    )
+
+    inventory = create_inventory_record(
+        db_session,
+        organization,
+        product,
+        warehouse,
+        quantity=20,
+        reserved_quantity=5,
+    )
+
+    inventory_id = inventory.id
+    authenticate_as(UserRole.OWNER, organization.id)
+
+    try:
+        response = client.patch(
+            f"/inventory/{inventory_id}/adjust",
+            json={"quantity_change": -10},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["quantity"] == 10
+        assert response.json()["reserved_quantity"] == 5
+
+        movement = (
+            db_session.query(InventoryMovement)
+            .filter_by(
+                organization_id=organization.id,
+                product_id=product.id,
+                warehouse_id=warehouse.id,
+                movement_type=InventoryMovementType.ADJUSTMENT,
+            )
+            .one()
+        )
+
+        assert movement.quantity == -10
+        assert movement.order_id is None
+
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_adjust_inventory_cannot_make_quantity_negative(
+    client,
+    db_session,
+):
+    organization, product, warehouse = (
+        create_inventory_test_data(db_session)
+    )
+
+    inventory = create_inventory_record(
+        db_session,
+        organization,
+        product,
+        warehouse,
+        quantity=10,
+        reserved_quantity=0,
+    )
+
+    inventory_id = inventory.id
+    authenticate_as(UserRole.OWNER, organization.id)
+
+    try:
+        response = client.patch(
+            f"/inventory/{inventory_id}/adjust",
+            json={"quantity_change": -11},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == (
+            "Inventory quantity cannot be negative."
+        )
+
+        db_session.refresh(inventory)
+
+        assert inventory.quantity == 10
+        assert inventory.reserved_quantity == 0
+
+        movement_count = (
+            db_session.query(InventoryMovement)
+            .filter_by(
+                organization_id=organization.id,
+                product_id=product.id,
+                warehouse_id=warehouse.id,
+                movement_type=InventoryMovementType.ADJUSTMENT,
+            )
+            .count()
+        )
+
+        assert movement_count == 0
+
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_adjust_inventory_can_reduce_to_reserved_quantity(
+    client,
+    db_session,
+):
+    organization, product, warehouse = (
+        create_inventory_test_data(db_session)
+    )
+
+    inventory = create_inventory_record(
+        db_session,
+        organization,
+        product,
+        warehouse,
+        quantity=20,
+        reserved_quantity=10,
+    )
+
+    inventory_id = inventory.id
+    authenticate_as(UserRole.OWNER, organization.id)
+
+    try:
+        response = client.patch(
+            f"/inventory/{inventory_id}/adjust",
+            json={"quantity_change": -10},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["quantity"] == 10
+        assert response.json()["reserved_quantity"] == 10
+
+        movement = (
+            db_session.query(InventoryMovement)
+            .filter_by(
+                organization_id=organization.id,
+                product_id=product.id,
+                warehouse_id=warehouse.id,
+                movement_type=InventoryMovementType.ADJUSTMENT,
+            )
+            .one()
+        )
+
+        assert movement.quantity == -10
+
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_zero_inventory_adjustment_records_zero_movement(
+    client,
+    db_session,
+):
+    organization, product, warehouse = (
+        create_inventory_test_data(db_session)
+    )
+
+    inventory = create_inventory_record(
+        db_session,
+        organization,
+        product,
+        warehouse,
+        quantity=20,
+        reserved_quantity=5,
+    )
+
+    inventory_id = inventory.id
+    authenticate_as(UserRole.OWNER, organization.id)
+
+    try:
+        response = client.patch(
+            f"/inventory/{inventory_id}/adjust",
+            json={"quantity_change": 0},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["quantity"] == 20
+        assert response.json()["reserved_quantity"] == 5
+
+        movement = (
+            db_session.query(InventoryMovement)
+            .filter_by(
+                organization_id=organization.id,
+                product_id=product.id,
+                warehouse_id=warehouse.id,
+                movement_type=InventoryMovementType.ADJUSTMENT,
+            )
+            .one()
+        )
+
+        assert movement.quantity == 0
+
+    finally:
+        app.dependency_overrides.clear()
