@@ -137,7 +137,13 @@ def update_product(
     product_id: int,
     product_data: ProductUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+   current_user: User = Depends(
+    require_roles(
+        UserRole.OWNER,
+        UserRole.ADMIN,
+        UserRole.MANAGER,
+    )
+),
 ):
     statement = select(Product).where(
         Product.id == product_id,
@@ -187,7 +193,13 @@ def update_product(
 def delete_product(
     product_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+  current_user: User = Depends(
+    require_roles(
+        UserRole.OWNER,
+        UserRole.ADMIN,
+        UserRole.MANAGER,
+    )
+),
 ):
     statement = select(Product).where(
         Product.id == product_id,
