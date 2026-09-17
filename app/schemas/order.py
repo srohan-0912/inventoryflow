@@ -1,7 +1,12 @@
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    model_validator,
+)
 
 from app.models.order import OrderStatus
 
@@ -14,7 +19,20 @@ class OrderItemCreate(BaseModel):
 class OrderCreate(BaseModel):
     customer_id: int
     warehouse_id: int
-    items: list[OrderItemCreate]
+    items: list[OrderItemCreate] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def reject_duplicate_products(self):
+        product_ids = [
+            item.product_id for item in self.items
+        ]
+
+        if len(product_ids) != len(set(product_ids)):
+            raise ValueError(
+                "Each product can appear only once in an order."
+            )
+
+        return self
 
 
 class OrderItemResponse(BaseModel):

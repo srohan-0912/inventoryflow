@@ -1016,3 +1016,42 @@ def test_cannot_ship_cancelled_order(client, db_session):
 
     finally:
         app.dependency_overrides.clear()
+
+
+# ============================================================
+# DUPLICATE PRODUCT VALIDATION
+# ============================================================
+
+def test_create_order_rejects_duplicate_product_items(
+    client,
+    db_session,
+):
+    organization, customer, warehouse, product, inventory = (
+        create_order_test_data(db_session)
+    )
+
+    authenticate_as(UserRole.OWNER, organization.id)
+
+    try:
+        response = client.post(
+            "/orders/",
+            json={
+                "customer_id": customer.id,
+                "warehouse_id": warehouse.id,
+                "items": [
+                    {
+                        "product_id": product.id,
+                        "quantity": 2,
+                    },
+                    {
+                        "product_id": product.id,
+                        "quantity": 3,
+                    },
+                ],
+            },
+        )
+
+        assert response.status_code == 422
+
+    finally:
+        app.dependency_overrides.clear()
