@@ -16,7 +16,7 @@ from app.models.inventory_movement import (
 )
 from app.models.order import Order, OrderStatus
 from app.models.user import User, UserRole
-
+from sqlalchemy import select
 
 # ============================================================
 # HELPERS
@@ -406,6 +406,255 @@ def test_confirm_order_rejects_insufficient_inventory(
         db_session.refresh(inventory)
         assert inventory.quantity == 3
         assert inventory.reserved_quantity == 0
+
+    finally:
+        app.dependency_overrides.clear()
+
+# ============================================================
+# REMAINING ORDER LIFECYCLE TESTS
+# ============================================================
+
+
+def test_cancel_pending_order(client, db_session):
+    organization, customer, warehouse, product, inventory = (
+        create_order_test_data(db_session)
+    )
+
+    authenticate_as(UserRole.OWNER, organization.id)
+
+    try:
+        response = create_order(
+            client, customer, warehouse, product, quantity=2
+        )
+        assert response.status_code == 201
+        order_id = response.json()["id"]
+
+        cancel_response = client.post(
+            f"/orders/{order_id}/cancel"
+        )
+
+        assert cancel_response.status_code == 200
+        assert cancel_response.json()["status"] == "CANCELLED"
+
+        db_session.refresh(inventory)
+        assert inventory.quantity == 20
+        assert inventory.reserved_quantity == 0
+
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_cancel_confirmed_order_releases_reserved_inventory(
+    client, db_session
+):
+    organization, customer, warehouse, product, inventory = (
+        create_order_test_data(db_session)
+    )
+
+    authenticate_as(UserRole.OWNER, organization.id)
+
+    try:
+        response = create_order(
+            client, customer, warehouse, product, quantity=4
+        )
+        assert response.status_code == 201
+        order_id = response.json()["id"]
+
+        confirm_response = client.post(
+            f"/orders/{order_id}/confirm"
+        )
+        assert confirm_response.status_code == 200
+
+        db_session.refresh(inventory)
+        assert inventory.reserved_quantity == 4
+
+        cancel_response = client.post(
+            f"/orders/{order_id}/cancel"
+        )
+
+        assert cancel_response.status_code == 200
+        assert cancel_response.json()["status"] == "CANCELLED"
+
+        db_session.refresh(inventory)
+        assert inventory.quantity == 20
+        assert inventory.reserved_quantity == 0
+
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_ship_confirmed_order_updates_inventory_and_movement(
+    client, db_session
+):
+    organization, customer, warehouse, product, inventory = (
+        create_order_test_data(db_session)
+    )
+
+    authenticate_as(UserRole.OWNER, organization.id)
+
+    try:
+        response = create_order(
+            client, customer, warehouse, product, quantity=3
+        )
+        assert response.status_code == 201
+        order_id = response.json()["id"]
+
+        confirm_response = client.post(
+            f"/orders/{order_id}/confirm"
+        )
+        assert confirm_response.status_code == 200
+
+        ship_response = client.post(
+            f"/orders/{order_id}/ship"
+        )
+
+        assert ship_response.status_code == 200
+        assert ship_response.json()["status"] == "SHIPPED"
+
+        db_session.refresh(inventory)
+        assert inventory.quantity == 17
+        assert inventory.reserved_quantity == 0
+
+        movement = db_session.scalar(
+            select(InventoryMovement).where(
+                InventoryMovement.order_id == order_id
+            )
+        )
+
+        assert movement is not None
+        assert movement.organization_id == organization.id
+        assert movement.product_id == product.id
+        assert movement.warehouse_id == warehouse.id
+        assert movement.movement_type == InventoryMovementType.SALE
+        assert movement.quantity == -3
+
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_complete_shipped_order(client, db_session):
+    organization, customer, warehouse, product, inventory = (
+        create_order_test_data(db_session)
+    )
+
+    authenticate_as(UserRole.OWNER, organization.id)
+
+    try:
+        response = create_order(
+            client, customer, warehouse, product, quantity=2
+        )
+        assert response.status_code == 201
+        order_id = response.json()["id"]
+
+        confirm_response = client.post(
+            f"/orders/{order_id}/confirm"
+        )
+        assert confirm_response.status_code == 200
+
+        ship_response = client.post(
+            f"/orders/{order_id}/ship"
+        )
+        assert ship_response.status_code == 200
+
+        complete_response = client.post(
+            f"/orders/{order_id}/complete"
+        )
+
+        assert complete_response.status_code == 200
+        assert complete_response.json()["status"] == "COMPLETED"
+
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_cannot_ship_pending_order(client, db_session):
+    organization, customer, warehouse, product, inventory = (
+        create_order_test_data(db_session)
+    )
+
+    authenticate_as(UserRole.OWNER, organization.id)
+
+    try:
+        response = create_order(
+            client, customer, warehouse, product, quantity=2
+        )
+        assert response.status_code == 201
+        order_id = response.json()["id"]
+
+        ship_response = client.post(
+            f"/orders/{order_id}/ship"
+        )
+
+        assert ship_response.status_code == 400
+        assert ship_response.json()["detail"] == (
+            "Only confirmed orders can be shipped."
+        )
+
+        db_session.refresh(inventory)
+        assert inventory.quantity == 20
+        assert inventory.reserved_quantity == 0
+
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_cannot_complete_pending_order(client, db_session):
+    organization, customer, warehouse, product, inventory = (
+        create_order_test_data(db_session)
+    )
+
+    authenticate_as(UserRole.OWNER, organization.id)
+
+    try:
+        response = create_order(
+            client, customer, warehouse, product, quantity=2
+        )
+        assert response.status_code == 201
+        order_id = response.json()["id"]
+
+        complete_response = client.post(
+            f"/orders/{order_id}/complete"
+        )
+
+        assert complete_response.status_code == 400
+        assert complete_response.json()["detail"] == (
+            "Only shipped orders can be completed."
+        )
+
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_cannot_cancel_shipped_order(client, db_session):
+    organization, customer, warehouse, product, inventory = (
+        create_order_test_data(db_session)
+    )
+
+    authenticate_as(UserRole.OWNER, organization.id)
+
+    try:
+        response = create_order(
+            client, customer, warehouse, product, quantity=2
+        )
+        assert response.status_code == 201
+        order_id = response.json()["id"]
+
+        assert client.post(
+            f"/orders/{order_id}/confirm"
+        ).status_code == 200
+
+        assert client.post(
+            f"/orders/{order_id}/ship"
+        ).status_code == 200
+
+        cancel_response = client.post(
+            f"/orders/{order_id}/cancel"
+        )
+
+        assert cancel_response.status_code == 400
+        assert cancel_response.json()["detail"] == (
+            "This order cannot be cancelled."
+        )
 
     finally:
         app.dependency_overrides.clear()
