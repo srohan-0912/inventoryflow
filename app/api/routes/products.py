@@ -1,11 +1,13 @@
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user, get_db
+from app.api.permissions import require_roles
 from app.models.product import Product
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.product import (
     ProductCreate,
     ProductResponse,
@@ -19,6 +21,7 @@ router = APIRouter(
 )
 
 
+# Create product: OWNER, ADMIN, MANAGER only
 @router.post(
     "/",
     response_model=ProductResponse,
@@ -27,7 +30,13 @@ router = APIRouter(
 def create_product(
     product_data: ProductCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(
+        require_roles(
+            UserRole.OWNER,
+            UserRole.ADMIN,
+            UserRole.MANAGER,
+        )
+    ),
 ):
     product = Product(
         organization_id=current_user.organization_id,
@@ -51,6 +60,7 @@ def create_product(
     return product
 
 
+# List products: any authenticated user in the organization
 @router.get(
     "/",
     response_model=list[ProductResponse],
@@ -71,6 +81,7 @@ def get_products(
     return db.scalars(statement).all()
 
 
+# Get one product
 @router.get(
     "/{product_id}",
     response_model=ProductResponse,
@@ -97,6 +108,7 @@ def get_product(
     return product
 
 
+# Update product: any authenticated user for now
 @router.put(
     "/{product_id}",
     response_model=ProductResponse,
@@ -143,6 +155,7 @@ def update_product(
     return product
 
 
+# Delete product: any authenticated user for now
 @router.delete(
     "/{product_id}",
     status_code=status.HTTP_204_NO_CONTENT,
