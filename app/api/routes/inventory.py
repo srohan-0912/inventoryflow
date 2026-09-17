@@ -246,6 +246,7 @@ def update_inventory(
 # OWNER, ADMIN, MANAGER
 # ============================================================
 
+
 @router.patch(
     "/{inventory_id}/adjust",
     response_model=InventoryResponse,
@@ -287,20 +288,24 @@ def adjust_inventory(
             detail="Quantity cannot be lower than reserved quantity.",
         )
 
-    inventory.quantity = new_quantity
+    try:
+        inventory.quantity = new_quantity
 
-    movement = InventoryMovement(
-        organization_id=inventory.organization_id,
-        product_id=inventory.product_id,
-        warehouse_id=inventory.warehouse_id,
-        movement_type=InventoryMovementType.ADJUSTMENT,
-        quantity=adjustment.quantity_change,
-    )
+        movement = InventoryMovement(
+            organization_id=inventory.organization_id,
+            product_id=inventory.product_id,
+            warehouse_id=inventory.warehouse_id,
+            movement_type=InventoryMovementType.ADJUSTMENT,
+            quantity=adjustment.quantity_change,
+        )
 
-    db.add(movement)
+        db.add(movement)
+        db.commit()
+        db.refresh(inventory)
 
-    db.commit()
-    db.refresh(inventory)
+    except Exception:
+        db.rollback()
+        raise
 
     return inventory
 
