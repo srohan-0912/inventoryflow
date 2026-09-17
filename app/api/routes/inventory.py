@@ -1,5 +1,4 @@
-
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -19,10 +18,15 @@ from app.schemas.inventory import (
     InventoryUpdate,
 )
 
+
 router = APIRouter(prefix="/inventory", tags=["Inventory"])
 
 
-# CREATE: OWNER, ADMIN, MANAGER
+# ============================================================
+# CREATE INVENTORY
+# OWNER, ADMIN, MANAGER
+# ============================================================
+
 @router.post(
     "/",
     response_model=InventoryResponse,
@@ -32,7 +36,11 @@ def create_inventory(
     inventory_data: InventoryCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(
-        require_roles(UserRole.OWNER, UserRole.ADMIN, UserRole.MANAGER)
+        require_roles(
+            UserRole.OWNER,
+            UserRole.ADMIN,
+            UserRole.MANAGER,
+        )
     ),
 ):
     if inventory_data.reserved_quantity > inventory_data.quantity:
@@ -45,13 +53,16 @@ def create_inventory(
         organization_id=current_user.organization_id,
         **inventory_data.model_dump(),
     )
+
     db.add(inventory)
 
     try:
         db.commit()
         db.refresh(inventory)
+
     except IntegrityError:
         db.rollback()
+
         raise HTTPException(
             status_code=400,
             detail="Inventory already exists for this product and warehouse.",
@@ -60,21 +71,38 @@ def create_inventory(
     return inventory
 
 
-# READ ALL: ALL AUTHENTICATED ROLES
+# ============================================================
+# GET ALL INVENTORY
+# ALL AUTHENTICATED USERS
+# PAGINATION: skip and limit
+# ============================================================
+
 @router.get("/", response_model=list[InventoryResponse])
 def get_inventory(
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=10, ge=1, le=100),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     statement = (
         select(Inventory)
-        .where(Inventory.organization_id == current_user.organization_id)
+        .where(
+            Inventory.organization_id
+            == current_user.organization_id
+        )
         .order_by(Inventory.id)
+        .offset(skip)
+        .limit(limit)
     )
+
     return db.scalars(statement).all()
 
 
-# READ ONE: ALL AUTHENTICATED ROLES
+# ============================================================
+# GET SINGLE INVENTORY ITEM
+# ALL AUTHENTICATED USERS
+# ============================================================
+
 @router.get("/{inventory_id}", response_model=InventoryResponse)
 def get_inventory_item(
     inventory_id: int,
@@ -85,38 +113,55 @@ def get_inventory_item(
         Inventory.id == inventory_id,
         Inventory.organization_id == current_user.organization_id,
     )
+
     inventory = db.scalar(statement)
 
     if inventory is None:
-        raise HTTPException(status_code=404, detail="Inventory not found.")
+        raise HTTPException(
+            status_code=404,
+            detail="Inventory not found.",
+        )
 
     return inventory
 
 
-# UPDATE: OWNER, ADMIN, MANAGER
+# ============================================================
+# UPDATE INVENTORY
+# OWNER, ADMIN, MANAGER
+# ============================================================
+
 @router.put("/{inventory_id}", response_model=InventoryResponse)
 def update_inventory(
     inventory_id: int,
     inventory_data: InventoryUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(
-        require_roles(UserRole.OWNER, UserRole.ADMIN, UserRole.MANAGER)
+        require_roles(
+            UserRole.OWNER,
+            UserRole.ADMIN,
+            UserRole.MANAGER,
+        )
     ),
 ):
     statement = select(Inventory).where(
         Inventory.id == inventory_id,
         Inventory.organization_id == current_user.organization_id,
     )
+
     inventory = db.scalar(statement)
 
     if inventory is None:
-        raise HTTPException(status_code=404, detail="Inventory not found.")
+        raise HTTPException(
+            status_code=404,
+            detail="Inventory not found.",
+        )
 
     update_data = inventory_data.model_dump(exclude_unset=True)
 
     new_quantity = update_data.get("quantity", inventory.quantity)
     new_reserved = update_data.get(
-        "reserved_quantity", inventory.reserved_quantity
+        "reserved_quantity",
+        inventory.reserved_quantity,
     )
 
     if new_reserved > new_quantity:
@@ -131,8 +176,10 @@ def update_inventory(
     try:
         db.commit()
         db.refresh(inventory)
+
     except IntegrityError:
         db.rollback()
+
         raise HTTPException(
             status_code=400,
             detail="Inventory update failed due to a data conflict.",
@@ -141,14 +188,25 @@ def update_inventory(
     return inventory
 
 
-# ADJUST: OWNER, ADMIN, MANAGER
-@router.patch("/{inventory_id}/adjust", response_model=InventoryResponse)
+# ============================================================
+# ADJUST INVENTORY
+# OWNER, ADMIN, MANAGER
+# ============================================================
+
+@router.patch(
+    "/{inventory_id}/adjust",
+    response_model=InventoryResponse,
+)
 def adjust_inventory(
     inventory_id: int,
     adjustment: InventoryAdjust,
     db: Session = Depends(get_db),
     current_user: User = Depends(
-        require_roles(UserRole.OWNER, UserRole.ADMIN, UserRole.MANAGER)
+        require_roles(
+            UserRole.OWNER,
+            UserRole.ADMIN,
+            UserRole.MANAGER,
+        )
     ),
 ):
     statement = (
@@ -159,10 +217,14 @@ def adjust_inventory(
         )
         .with_for_update()
     )
+
     inventory = db.scalar(statement)
 
     if inventory is None:
-        raise HTTPException(status_code=404, detail="Inventory not found.")
+        raise HTTPException(
+            status_code=404,
+            detail="Inventory not found.",
+        )
 
     new_quantity = inventory.quantity + adjustment.quantity_change
 
@@ -187,6 +249,7 @@ def adjust_inventory(
         movement_type=InventoryMovementType.ADJUSTMENT,
         quantity=adjustment.quantity_change,
     )
+
     db.add(movement)
 
     db.commit()
@@ -195,7 +258,11 @@ def adjust_inventory(
     return inventory
 
 
-# DELETE: OWNER, ADMIN, MANAGER
+# ============================================================
+# DELETE INVENTORY
+# OWNER, ADMIN, MANAGER
+# ============================================================
+
 @router.delete(
     "/{inventory_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -204,17 +271,25 @@ def delete_inventory(
     inventory_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(
-        require_roles(UserRole.OWNER, UserRole.ADMIN, UserRole.MANAGER)
+        require_roles(
+            UserRole.OWNER,
+            UserRole.ADMIN,
+            UserRole.MANAGER,
+        )
     ),
 ):
     statement = select(Inventory).where(
         Inventory.id == inventory_id,
         Inventory.organization_id == current_user.organization_id,
     )
+
     inventory = db.scalar(statement)
 
     if inventory is None:
-        raise HTTPException(status_code=404, detail="Inventory not found.")
+        raise HTTPException(
+            status_code=404,
+            detail="Inventory not found.",
+        )
 
     db.delete(inventory)
     db.commit()
