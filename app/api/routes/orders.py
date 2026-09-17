@@ -1,5 +1,4 @@
-
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -130,6 +129,7 @@ def create_order(
     except HTTPException:
         db.rollback()
         raise
+
     except Exception:
         db.rollback()
         raise
@@ -140,6 +140,7 @@ def create_order(
 # ============================================================
 # GET ALL ORDERS
 # ALL AUTHENTICATED USERS
+# PAGINATION: skip and limit
 # ============================================================
 
 @router.get(
@@ -147,6 +148,8 @@ def create_order(
     response_model=list[OrderResponse],
 )
 def get_orders(
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=10, ge=1, le=100),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -157,6 +160,8 @@ def get_orders(
             == current_user.organization_id
         )
         .order_by(Order.id)
+        .offset(skip)
+        .limit(limit)
     )
 
     return db.scalars(statement).all()
@@ -283,6 +288,7 @@ def confirm_order(
     except HTTPException:
         db.rollback()
         raise
+
     except Exception:
         db.rollback()
         raise
@@ -377,6 +383,7 @@ def cancel_order(
     except HTTPException:
         db.rollback()
         raise
+
     except Exception:
         db.rollback()
         raise
@@ -488,6 +495,7 @@ def ship_order(
     except HTTPException:
         db.rollback()
         raise
+
     except Exception:
         db.rollback()
         raise
