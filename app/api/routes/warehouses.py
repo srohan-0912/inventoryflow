@@ -1,10 +1,12 @@
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user, get_db
-from app.models.user import User
+from app.api.permissions import require_roles
+from app.models.user import User, UserRole
 from app.models.warehouse import Warehouse
 from app.schemas.warehouse import (
     WarehouseCreate,
@@ -12,12 +14,14 @@ from app.schemas.warehouse import (
     WarehouseUpdate,
 )
 
+
 router = APIRouter(
     prefix="/warehouses",
     tags=["Warehouses"],
 )
 
 
+# Create warehouse: OWNER, ADMIN, MANAGER
 @router.post(
     "/",
     response_model=WarehouseResponse,
@@ -26,7 +30,13 @@ router = APIRouter(
 def create_warehouse(
     warehouse_data: WarehouseCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(
+        require_roles(
+            UserRole.OWNER,
+            UserRole.ADMIN,
+            UserRole.MANAGER,
+        )
+    ),
 ):
     warehouse = Warehouse(
         organization_id=current_user.organization_id,
@@ -48,6 +58,7 @@ def create_warehouse(
     return warehouse
 
 
+# List warehouses: all authenticated roles
 @router.get(
     "/",
     response_model=list[WarehouseResponse],
@@ -68,6 +79,7 @@ def get_warehouses(
     return db.scalars(statement).all()
 
 
+# Get one warehouse: all authenticated roles
 @router.get(
     "/{warehouse_id}",
     response_model=WarehouseResponse,
@@ -94,6 +106,7 @@ def get_warehouse(
     return warehouse
 
 
+# Update warehouse: OWNER, ADMIN, MANAGER
 @router.put(
     "/{warehouse_id}",
     response_model=WarehouseResponse,
@@ -102,7 +115,13 @@ def update_warehouse(
     warehouse_id: int,
     warehouse_data: WarehouseUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(
+        require_roles(
+            UserRole.OWNER,
+            UserRole.ADMIN,
+            UserRole.MANAGER,
+        )
+    ),
 ):
     statement = select(Warehouse).where(
         Warehouse.id == warehouse_id,
@@ -138,6 +157,7 @@ def update_warehouse(
     return warehouse
 
 
+# Delete warehouse: OWNER, ADMIN, MANAGER
 @router.delete(
     "/{warehouse_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -145,7 +165,13 @@ def update_warehouse(
 def delete_warehouse(
     warehouse_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(
+        require_roles(
+            UserRole.OWNER,
+            UserRole.ADMIN,
+            UserRole.MANAGER,
+        )
+    ),
 ):
     statement = select(Warehouse).where(
         Warehouse.id == warehouse_id,
