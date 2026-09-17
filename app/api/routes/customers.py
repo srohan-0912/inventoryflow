@@ -1,5 +1,4 @@
-
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -14,13 +13,18 @@ from app.schemas.customer import (
     CustomerUpdate,
 )
 
+
 router = APIRouter(
     prefix="/customers",
     tags=["Customers"],
 )
 
 
-# Create customer: OWNER, ADMIN, MANAGER
+# ============================================================
+# CREATE CUSTOMER
+# OWNER, ADMIN, MANAGER
+# ============================================================
+
 @router.post(
     "/",
     response_model=CustomerResponse,
@@ -47,8 +51,10 @@ def create_customer(
     try:
         db.commit()
         db.refresh(customer)
+
     except IntegrityError:
         db.rollback()
+
         raise HTTPException(
             status_code=400,
             detail="Customer could not be created due to a data conflict.",
@@ -57,12 +63,19 @@ def create_customer(
     return customer
 
 
-# List customers: all authenticated roles
+# ============================================================
+# GET ALL CUSTOMERS
+# ALL AUTHENTICATED USERS
+# PAGINATION: skip and limit
+# ============================================================
+
 @router.get(
     "/",
     response_model=list[CustomerResponse],
 )
 def get_customers(
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=10, ge=1, le=100),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -73,12 +86,18 @@ def get_customers(
             == current_user.organization_id
         )
         .order_by(Customer.id)
+        .offset(skip)
+        .limit(limit)
     )
 
     return db.scalars(statement).all()
 
 
-# Get one customer: all authenticated roles
+# ============================================================
+# GET SINGLE CUSTOMER
+# ALL AUTHENTICATED USERS
+# ============================================================
+
 @router.get(
     "/{customer_id}",
     response_model=CustomerResponse,
@@ -105,7 +124,11 @@ def get_customer(
     return customer
 
 
-# Update customer: OWNER, ADMIN, MANAGER
+# ============================================================
+# UPDATE CUSTOMER
+# OWNER, ADMIN, MANAGER
+# ============================================================
+
 @router.put(
     "/{customer_id}",
     response_model=CustomerResponse,
@@ -146,8 +169,10 @@ def update_customer(
     try:
         db.commit()
         db.refresh(customer)
+
     except IntegrityError:
         db.rollback()
+
         raise HTTPException(
             status_code=400,
             detail="Customer could not be updated due to a data conflict.",
@@ -156,7 +181,11 @@ def update_customer(
     return customer
 
 
-# Delete customer: OWNER, ADMIN, MANAGER
+# ============================================================
+# DELETE CUSTOMER
+# OWNER, ADMIN, MANAGER
+# ============================================================
+
 @router.delete(
     "/{customer_id}",
     status_code=status.HTTP_204_NO_CONTENT,
