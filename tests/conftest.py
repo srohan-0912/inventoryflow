@@ -8,30 +8,38 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.main import app
-from app.api.dependencies import get_db
 from app.db.base import Base
+from app.api.dependencies import get_db
+
+from app.models.organization import Organization
+from app.models.user import User
+from app.models.product import Product
+from app.models.warehouse import Warehouse
+from app.models.customer import Customer
+from app.models.inventory import Inventory
+from app.models.inventory_movement import InventoryMovement
+from app.models.order import Order, OrderItem
 
 
-# Load environment variables from .env
-load_dotenv()
-
+load_dotenv(".env")
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
 
 if not TEST_DATABASE_URL:
     raise RuntimeError(
         "TEST_DATABASE_URL is missing. "
-        "Add it to your .env file."
+        "Set it in your environment or .env file."
     )
 
-# Safety check: never run tests against the development database.
 if "inventoryflow_test" not in TEST_DATABASE_URL:
     raise RuntimeError(
-        "TEST_DATABASE_URL must point to inventoryflow_test."
+        "Safety check failed: TEST_DATABASE_URL must point "
+        "to the inventoryflow_test database."
     )
+
 
 test_engine = create_engine(
     TEST_DATABASE_URL,
-    echo=False,
+    pool_pre_ping=True,
 )
 
 TestingSessionLocal = sessionmaker(
@@ -43,16 +51,6 @@ TestingSessionLocal = sessionmaker(
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_database():
-       # Import models so SQLAlchemy registers their tables.
-    import app.models.organization
-    import app.models.user
-    import app.models.product
-    import app.models.warehouse
-    import app.models.customer
-    import app.models.inventory
-    import app.models.order
-    import app.models.inventory_movement
-
     Base.metadata.create_all(bind=test_engine)
 
     yield
@@ -63,16 +61,27 @@ def setup_test_database():
 
 @pytest.fixture()
 def db_session():
+    """
+    Run each test inside an outer transaction.
+    SAVEPOINTs allow endpoint rollback without destroying
+    the test's outer transaction.
+    """
     connection = test_engine.connect()
-    transaction = connection.begin()
+    outer_transaction = connection.begin()
 
-    session = TestingSessionLocal(bind=connection)
+    session = TestingSessionLocal(
+        bind=connection,
+        join_transaction_mode="create_savepoint",
+    )
 
     try:
         yield session
     finally:
         session.close()
-        transaction.rollback()
+
+        if outer_transaction.is_active:
+            outer_transaction.rollback()
+
         connection.close()
 
 
@@ -87,4 +96,4 @@ def client(db_session):
         with TestClient(app) as test_client:
             yield test_client
     finally:
-        app.dependency_overrides.clear()
+        app.dependency_overrides.pop(get_db, None)

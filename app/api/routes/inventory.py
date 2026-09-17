@@ -1,3 +1,4 @@
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -10,6 +11,8 @@ from app.models.inventory_movement import (
     InventoryMovement,
     InventoryMovementType,
 )
+from app.models.product import Product
+from app.models.warehouse import Warehouse
 from app.models.user import User, UserRole
 from app.schemas.inventory import (
     InventoryAdjust,
@@ -20,6 +23,48 @@ from app.schemas.inventory import (
 
 
 router = APIRouter(prefix="/inventory", tags=["Inventory"])
+
+
+WRITE_ROLES = (
+    UserRole.OWNER,
+    UserRole.ADMIN,
+    UserRole.MANAGER,
+)
+
+
+def validate_product_and_warehouse(
+    db: Session,
+    organization_id: int,
+    product_id: int,
+    warehouse_id: int,
+):
+    """Ensure product and warehouse belong to the user's organization."""
+
+    product = db.scalar(
+        select(Product).where(
+            Product.id == product_id,
+            Product.organization_id == organization_id,
+        )
+    )
+
+    if product is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Product not found in your organization.",
+        )
+
+    warehouse = db.scalar(
+        select(Warehouse).where(
+            Warehouse.id == warehouse_id,
+            Warehouse.organization_id == organization_id,
+        )
+    )
+
+    if warehouse is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Warehouse not found in your organization.",
+        )
 
 
 # ============================================================
@@ -35,19 +80,20 @@ router = APIRouter(prefix="/inventory", tags=["Inventory"])
 def create_inventory(
     inventory_data: InventoryCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(
-        require_roles(
-            UserRole.OWNER,
-            UserRole.ADMIN,
-            UserRole.MANAGER,
-        )
-    ),
+    current_user: User = Depends(require_roles(*WRITE_ROLES)),
 ):
     if inventory_data.reserved_quantity > inventory_data.quantity:
         raise HTTPException(
             status_code=400,
             detail="Reserved quantity cannot exceed quantity.",
         )
+
+    validate_product_and_warehouse(
+        db=db,
+        organization_id=current_user.organization_id,
+        product_id=inventory_data.product_id,
+        warehouse_id=inventory_data.warehouse_id,
+    )
 
     inventory = Inventory(
         organization_id=current_user.organization_id,
@@ -62,7 +108,6 @@ def create_inventory(
 
     except IntegrityError:
         db.rollback()
-
         raise HTTPException(
             status_code=400,
             detail="Inventory already exists for this product and warehouse.",
@@ -74,7 +119,6 @@ def create_inventory(
 # ============================================================
 # GET ALL INVENTORY
 # ALL AUTHENTICATED USERS
-# PAGINATION: skip and limit
 # ============================================================
 
 @router.get("/", response_model=list[InventoryResponse])
@@ -87,8 +131,7 @@ def get_inventory(
     statement = (
         select(Inventory)
         .where(
-            Inventory.organization_id
-            == current_user.organization_id
+            Inventory.organization_id == current_user.organization_id
         )
         .order_by(Inventory.id)
         .offset(skip)
@@ -135,13 +178,7 @@ def update_inventory(
     inventory_id: int,
     inventory_data: InventoryUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(
-        require_roles(
-            UserRole.OWNER,
-            UserRole.ADMIN,
-            UserRole.MANAGER,
-        )
-    ),
+    current_user: User = Depends(require_roles(*WRITE_ROLES)),
 ):
     statement = select(Inventory).where(
         Inventory.id == inventory_id,
@@ -158,11 +195,28 @@ def update_inventory(
 
     update_data = inventory_data.model_dump(exclude_unset=True)
 
+    # Reject explicit null values for quantity fields.
+    if any(
+        update_data.get(field) is None
+        for field in ("quantity", "reserved_quantity")
+        if field in update_data
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="Quantity fields cannot be null.",
+        )
+
     new_quantity = update_data.get("quantity", inventory.quantity)
     new_reserved = update_data.get(
         "reserved_quantity",
         inventory.reserved_quantity,
     )
+
+    if new_quantity < 0 or new_reserved < 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Quantity fields cannot be negative.",
+        )
 
     if new_reserved > new_quantity:
         raise HTTPException(
@@ -179,7 +233,6 @@ def update_inventory(
 
     except IntegrityError:
         db.rollback()
-
         raise HTTPException(
             status_code=400,
             detail="Inventory update failed due to a data conflict.",
@@ -201,13 +254,7 @@ def adjust_inventory(
     inventory_id: int,
     adjustment: InventoryAdjust,
     db: Session = Depends(get_db),
-    current_user: User = Depends(
-        require_roles(
-            UserRole.OWNER,
-            UserRole.ADMIN,
-            UserRole.MANAGER,
-        )
-    ),
+    current_user: User = Depends(require_roles(*WRITE_ROLES)),
 ):
     statement = (
         select(Inventory)
@@ -270,13 +317,7 @@ def adjust_inventory(
 def delete_inventory(
     inventory_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(
-        require_roles(
-            UserRole.OWNER,
-            UserRole.ADMIN,
-            UserRole.MANAGER,
-        )
-    ),
+    current_user: User = Depends(require_roles(*WRITE_ROLES)),
 ):
     statement = select(Inventory).where(
         Inventory.id == inventory_id,
