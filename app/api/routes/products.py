@@ -1,10 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_current_user, get_db
 from app.api.permissions import require_roles
+from app.core.cache import (
+    get_cached_json,
+    set_cached_json,
+    invalidate_product_cache,
+    product_list_cache_key,
+    product_detail_cache_key,
+)
 from app.models.product import Product
 from app.models.user import User, UserRole
 from app.schemas.product import (
@@ -54,11 +62,13 @@ def create_product(
 
     except IntegrityError:
         db.rollback()
-
         raise HTTPException(
-            status_code=400,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="Product SKU already exists.",
         )
+
+    # Clear cached product data for this organization.
+    invalidate_product_cache(current_user.organization_id)
 
     return product
 
@@ -66,7 +76,7 @@ def create_product(
 # ============================================================
 # GET ALL PRODUCTS
 # ALL AUTHENTICATED USERS
-# PAGINATION: skip and limit
+# PAGINATION + REDIS CACHE
 # ============================================================
 
 @router.get(
@@ -79,23 +89,46 @@ def get_products(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    organization_id = current_user.organization_id
+
+    cache_key = product_list_cache_key(
+        organization_id,
+        skip,
+        limit,
+    )
+
+    cached_products = get_cached_json(cache_key)
+
+    if cached_products is not None:
+        return cached_products
+
     statement = (
         select(Product)
         .where(
-            Product.organization_id
-            == current_user.organization_id
+            Product.organization_id == organization_id
         )
         .order_by(Product.id)
         .offset(skip)
         .limit(limit)
     )
 
-    return db.scalars(statement).all()
+    products = db.scalars(statement).all()
+
+    # Cache JSON-compatible response data.
+    response_data = [
+        ProductResponse.model_validate(product).model_dump(mode="json")
+        for product in products
+    ]
+
+    set_cached_json(cache_key, response_data)
+
+    return response_data
 
 
 # ============================================================
 # GET SINGLE PRODUCT
 # ALL AUTHENTICATED USERS
+# REDIS CACHE
 # ============================================================
 
 @router.get(
@@ -107,26 +140,44 @@ def get_product(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    organization_id = current_user.organization_id
+
+    cache_key = product_detail_cache_key(
+        organization_id,
+        product_id,
+    )
+
+    cached_product = get_cached_json(cache_key)
+
+    if cached_product is not None:
+        return cached_product
+
     statement = select(Product).where(
         Product.id == product_id,
-        Product.organization_id
-        == current_user.organization_id,
+        Product.organization_id == organization_id,
     )
 
     product = db.scalar(statement)
 
     if product is None:
         raise HTTPException(
-            status_code=404,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="Product not found.",
         )
 
-    return product
+    response_data = ProductResponse.model_validate(
+        product
+    ).model_dump(mode="json")
+
+    set_cached_json(cache_key, response_data)
+
+    return response_data
 
 
 # ============================================================
 # UPDATE PRODUCT
-# ANY AUTHENTICATED USER FOR NOW
+# OWNER, ADMIN, MANAGER
+# INVALIDATE CACHE AFTER SUCCESS
 # ============================================================
 
 @router.put(
@@ -137,25 +188,26 @@ def update_product(
     product_id: int,
     product_data: ProductUpdate,
     db: Session = Depends(get_db),
-   current_user: User = Depends(
-    require_roles(
-        UserRole.OWNER,
-        UserRole.ADMIN,
-        UserRole.MANAGER,
-    )
-),
+    current_user: User = Depends(
+        require_roles(
+            UserRole.OWNER,
+            UserRole.ADMIN,
+            UserRole.MANAGER,
+        )
+    ),
 ):
+    organization_id = current_user.organization_id
+
     statement = select(Product).where(
         Product.id == product_id,
-        Product.organization_id
-        == current_user.organization_id,
+        Product.organization_id == organization_id,
     )
 
     product = db.scalar(statement)
 
     if product is None:
         raise HTTPException(
-            status_code=404,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="Product not found.",
         )
 
@@ -172,18 +224,20 @@ def update_product(
 
     except IntegrityError:
         db.rollback()
-
         raise HTTPException(
-            status_code=400,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="Product SKU already exists.",
         )
+
+    invalidate_product_cache(organization_id)
 
     return product
 
 
 # ============================================================
 # DELETE PRODUCT
-# ANY AUTHENTICATED USER FOR NOW
+# OWNER, ADMIN, MANAGER
+# INVALIDATE CACHE AFTER SUCCESS
 # ============================================================
 
 @router.delete(
@@ -193,29 +247,32 @@ def update_product(
 def delete_product(
     product_id: int,
     db: Session = Depends(get_db),
-  current_user: User = Depends(
-    require_roles(
-        UserRole.OWNER,
-        UserRole.ADMIN,
-        UserRole.MANAGER,
-    )
-),
+    current_user: User = Depends(
+        require_roles(
+            UserRole.OWNER,
+            UserRole.ADMIN,
+            UserRole.MANAGER,
+        )
+    ),
 ):
+    organization_id = current_user.organization_id
+
     statement = select(Product).where(
         Product.id == product_id,
-        Product.organization_id
-        == current_user.organization_id,
+        Product.organization_id == organization_id,
     )
 
     product = db.scalar(statement)
 
     if product is None:
         raise HTTPException(
-            status_code=404,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="Product not found.",
         )
 
     db.delete(product)
     db.commit()
 
-    return None
+    invalidate_product_cache(organization_id)
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
