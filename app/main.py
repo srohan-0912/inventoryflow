@@ -16,6 +16,7 @@ from app.api.routes.auth import router as auth_router
 from app.api.routes.inventory_movements import (
     router as inventory_movement_router,
 )
+from app.core.errors import register_exception_handlers
 
 
 # ============================================================
@@ -42,7 +43,7 @@ app = FastAPI(
     description="Multi-Tenant Inventory & Order Management Platform",
     version="1.0.0",
 )
-
+register_exception_handlers(app)
 
 # ============================================================
 # REQUEST LOGGING MIDDLEWARE
