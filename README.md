@@ -505,4 +505,30 @@ erDiagram
     WAREHOUSES ||--o{ INVENTORY_MOVEMENTS : records
     ORDERS o|--o{ INVENTORY_MOVEMENTS : generates
 
+
+## System Architecture
+
+InventoryFlow follows a layered backend architecture to separate API handling, business logic, database operations, and supporting services.
+
+```mermaid
+flowchart TD
+    A[Client / API Consumer] --> B[FastAPI Application]
+
+    B --> C[Authentication & RBAC]
+    C --> D[API Routes]
+
+    D --> E[Business Logic]
+    E --> F[SQLAlchemy ORM]
+
+    F --> G[(PostgreSQL Database)]
+    E --> H[(Redis Cache)]
+
+    I[Alembic Migrations] --> G
+    J[Pytest] --> B
+    K[Docker Compose] -. runs .-> B
+    K -. runs .-> G
+    K -. runs .-> H
+
+
+
 Rohan S
