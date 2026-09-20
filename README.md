@@ -330,4 +330,102 @@ DELETE /products/{product_id}
 
 A successful deletion returns HTTP `204 No Content`.
 
+## Inventory API Examples
+
+### 1. Create inventory
+
+**POST** `/inventory/`
+
+```json
+{
+  "product_id": 1,
+  "warehouse_id": 1,
+  "quantity": 25,
+  "reserved_quantity": 0
+}
+```
+
+### 2. Adjust inventory quantity
+
+**PATCH** `/inventory/{inventory_id}/adjust`
+
+```json
+{
+  "quantity_change": 5
+}
+```
+
+Use a positive value to increase stock or a negative value to decrease it.
+
+### 3. Update inventory
+
+**PUT** `/inventory/{inventory_id}`
+
+```json
+{
+  "quantity": 30,
+  "reserved_quantity": 0
+}
+```
+
+### 4. Retrieve inventory
+
+* `GET /inventory/` — List inventory records.
+* `GET /inventory/{inventory_id}` — Retrieve a specific inventory record.
+* `DELETE /inventory/{inventory_id}` — Delete an inventory record.
+
+---
+
+## Order API Examples
+
+### 1. Create an order
+
+**POST** `/orders/`
+
+```json
+{
+  "customer_id": 1,
+  "warehouse_id": 1,
+  "items": [
+    {
+      "product_id": 1,
+      "quantity": 2
+    }
+  ]
+}
+```
+
+Each order must contain at least one item. A product can appear only once in an order.
+
+### 2. Order lifecycle endpoints
+
+| Action            | Endpoint                           |
+| ----------------- | ---------------------------------- |
+| List orders       | `GET /orders/`                     |
+| Retrieve an order | `GET /orders/{order_id}`           |
+| Confirm an order  | `POST /orders/{order_id}/confirm`  |
+| Cancel an order   | `POST /orders/{order_id}/cancel`   |
+| Ship an order     | `POST /orders/{order_id}/ship`     |
+| Complete an order | `POST /orders/{order_id}/complete` |
+
+### 3. Order workflow
+
+1. Create an order with a customer, warehouse, and products.
+2. Confirm the order to reserve the required inventory.
+3. Cancel the order if it should not proceed.
+4. Ship the confirmed order to decrease inventory quantity.
+5. Complete the order after fulfillment.
+
+**Example:** In local testing, an order for 2 units was confirmed and shipped. Inventory quantity decreased from 30 to 28, and reserved quantity returned to 0.
+
+---
+
+## Inventory Movement API
+
+* `GET /inventory-movements/` — List inventory movements.
+* `GET /inventory-movements/{movement_id}` — Retrieve a specific inventory movement.
+
+
+
+
 Rohan S
