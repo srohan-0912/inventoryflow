@@ -425,6 +425,58 @@ Each order must contain at least one item. A product can appear only once in an 
 * `GET /inventory-movements/` — List inventory movements.
 * `GET /inventory-movements/{movement_id}` — Retrieve a specific inventory movement.
 
+## Database Design
+
+InventoryFlow uses PostgreSQL and SQLAlchemy ORM to manage organization-based inventory and order data.
+
+### Database Tables
+
+| Table | Purpose | Key Fields |
+|---|---|---|
+| `organizations` | Stores organizations | `id`, `name`, `created_at`, `updated_at` |
+| `users` | Stores users and roles | `id`, `organization_id`, `name`, `email`, `password_hash`, `role`, `is_active` |
+| `products` | Stores product details | `id`, `organization_id`, `sku`, `name`, `price`, `is_active` |
+| `warehouses` | Stores warehouse information | `id`, `organization_id`, `name`, `location` |
+| `customers` | Stores customer contact information | `id`, `organization_id`, `name`, `email`, `phone`, `address` |
+| `inventory` | Tracks product quantities by warehouse | `id`, `organization_id`, `product_id`, `warehouse_id`, `quantity`, `reserved_quantity` |
+| `orders` | Stores customer orders and status | `id`, `organization_id`, `customer_id`, `warehouse_id`, `status`, `total_amount` |
+| `order_items` | Stores products and quantities in orders | `id`, `order_id`, `product_id`, `quantity`, `unit_price`, `subtotal` |
+| `inventory_movements` | Records inventory movement details | `id`, `organization_id`, `product_id`, `warehouse_id`, `order_id`, `movement_type`, `quantity` |
+
+### Entity Relationships
+
+- An organization has multiple users, products, warehouses, customers, inventory records, and orders.
+- A product can have inventory records across multiple warehouses.
+- A warehouse can contain inventory for multiple products.
+- A customer can have multiple orders.
+- An order belongs to a customer and a warehouse, and contains order items.
+- Each order item references a product.
+- Inventory movements reference an organization, product, and warehouse, and can optionally reference an order.
+
+### Data Integrity
+
+- Product SKUs are unique within an organization.
+- Warehouse names are unique within an organization.
+- An inventory record is unique for each organization, product, and warehouse combination.
+- Inventory quantity and reserved quantity cannot be negative.
+- Reserved quantity cannot exceed total quantity.
+- Order item quantities must be greater than zero.
+- Order totals, item prices, and subtotals cannot be negative.
+
+### User Roles
+
+- `OWNER`
+- `ADMIN`
+- `MANAGER`
+- `STAFF`
+
+### Order Statuses
+
+`PENDING`, `CONFIRMED`, `CANCELLED`, `SHIPPED`, `COMPLETED`
+
+### Inventory Movement Types
+
+`PURCHASE`, `SALE`, `ADJUSTMENT`, `TRANSFER_IN`, `TRANSFER_OUT`, `RETURN`
 
 
 
