@@ -529,6 +529,23 @@ flowchart TD
     K -. runs .-> G
     K -. runs .-> H
 
+## Limitations and Future Improvements
+
+### Current Limitations
+
+- AWS deployment is not completed; the application currently runs locally using Docker Compose.
+- Redis caching is currently implemented for product API responses.
+- Automated tests cover core API functionality and business workflows, but broader performance and load testing is still needed.
+
+### Future Improvements
+
+- Deploy the application to AWS with secure configuration and monitoring.
+- Add CI/CD deployment automation.
+- Implement more comprehensive cache invalidation and monitoring.
+- Add performance and load testing for high-traffic scenarios.
+- Improve observability with metrics, dashboards, and centralized logs.
+- Add more advanced inventory reporting and analytics.
+
 
 
 Rohan S
