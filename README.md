@@ -265,4 +265,69 @@ In Swagger UI (`/docs`), use the **Authorize** button if available and enter the
 
 **Note:** Replace the example organization ID with an organization that exists in your database. Use a unique email address for each registration.
 
+
+## Product API Examples
+
+All product endpoints require authentication and operate within the authenticated user's organization.
+
+### 1. Create a product
+
+Send a `POST` request to `/products/`.
+
+```json
+{
+  "sku": "DEMO-001",
+  "name": "Demo Laptop",
+  "description": "Laptop for demonstration",
+  "price": "55000.00",
+  "is_active": true
+}
+```
+
+The `sku` and `name` fields are required. The price must be zero or greater and supports up to two decimal places.
+
+### 2. List products
+
+Send a `GET` request to `/products/`.
+
+Optional pagination parameters:
+
+- `skip` — number of records to skip
+- `limit` — number of records to return
+
+Example:
+
+```http
+GET /products/?skip=0&limit=10
+```
+
+### 3. Get a product
+
+```http
+GET /products/1
+```
+
+Replace `1` with the product ID.
+
+### 4. Update a product
+
+Send a `PUT` request to `/products/{product_id}`.
+
+```json
+{
+  "name": "Updated Demo Laptop",
+  "price": "52000.00"
+}
+```
+
+Only include the fields you want to update.
+
+### 5. Delete a product
+
+```http
+DELETE /products/{product_id}
+```
+
+A successful deletion returns HTTP `204 No Content`.
+
 Rohan S
