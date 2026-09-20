@@ -130,4 +130,85 @@ Core backend workflows, authentication, inventory and order operations, automate
 
 ## Author
 
+
+## API Endpoints
+
+Base URL: `http://127.0.0.1:8000`
+
+Interactive API documentation is available at `/docs`.
+
+### Authentication
+
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/auth/register` | Register a user |
+| POST | `/auth/login` | Log in and obtain a token |
+
+### Organizations
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/organizations/` | List organizations |
+| POST | `/organizations/` | Create an organization |
+
+### Products
+
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/products/` | Create a product |
+| GET | `/products/` | List products |
+| GET | `/products/{product_id}` | Get a product |
+| PUT | `/products/{product_id}` | Update a product |
+| DELETE | `/products/{product_id}` | Delete a product |
+
+### Warehouses
+
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/warehouses/` | Create a warehouse |
+| GET | `/warehouses/` | List warehouses |
+| GET | `/warehouses/{warehouse_id}` | Get a warehouse |
+| PUT | `/warehouses/{warehouse_id}` | Update a warehouse |
+| DELETE | `/warehouses/{warehouse_id}` | Delete a warehouse |
+
+### Customers
+
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/customers/` | Create a customer |
+| GET | `/customers/` | List customers |
+| GET | `/customers/{customer_id}` | Get a customer |
+| PUT | `/customers/{customer_id}` | Update a customer |
+| DELETE | `/customers/{customer_id}` | Delete a customer |
+
+### Inventory
+
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/inventory/` | Create an inventory record |
+| GET | `/inventory/` | List inventory |
+| GET | `/inventory/{inventory_id}` | Get an inventory record |
+| PUT | `/inventory/{inventory_id}` | Update an inventory record |
+| PATCH | `/inventory/{inventory_id}/adjust` | Adjust inventory |
+| DELETE | `/inventory/{inventory_id}` | Delete an inventory record |
+
+### Inventory Movements
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/inventory-movements/` | List inventory movements |
+| GET | `/inventory-movements/{movement_id}` | Get a movement |
+
+### Orders
+
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/orders/` | Create an order |
+| GET | `/orders/` | List orders |
+| GET | `/orders/{order_id}` | Get an order |
+| POST | `/orders/{order_id}/confirm` | Confirm an order |
+| POST | `/orders/{order_id}/cancel` | Cancel an order |
+| POST | `/orders/{order_id}/ship` | Ship an order |
+| POST | `/orders/{order_id}/complete` | Complete an order |
+
 Rohan S
