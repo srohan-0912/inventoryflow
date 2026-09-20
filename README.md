@@ -31,6 +31,7 @@ InventoryFlow is a backend application for managing products, warehouses, invent
 ```text
 inventoryflow/
 ├── alembic/
+│   └── versions/
 ├── app/
 │   ├── api/
 │   │   └── routes/
@@ -38,15 +39,15 @@ inventoryflow/
 │   ├── db/
 │   ├── models/
 │   ├── schemas/
-│   ├── tests/
 │   └── main.py
-├── .env
+├── tests/
+├── .env.example
 ├── .gitignore
 ├── alembic.ini
 ├── Dockerfile
 ├── docker-compose.yml
+├── requirements.txt
 └── README.md
-```
 
 ## Run Locally
 
@@ -546,6 +547,496 @@ flowchart TD
 - Improve observability with metrics, dashboards, and centralized logs.
 - Add more advanced inventory reporting and analytics.
 
+
+
+## Run Locally
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/srohan-0912/inventoryflow.git
+cd inventoryflow
+```
+
+### 2. Create and activate a virtual environment
+
+For Windows PowerShell:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+### 3. Install dependencies
+
+```powershell
+pip install -r requirements.txt
+```
+
+### 4. Configure environment variables
+
+Create a `.env` file in the project root.
+
+Use `.env.example` as a reference and configure your own local database and JWT settings.
+
+Example `.env.example`:
+
+```dotenv
+DATABASE_URL=postgresql+psycopg://username:password@localhost:5433/inventoryflow
+JWT_SECRET_KEY=replace_with_a_secure_random_secret
+JWT_ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+REDIS_URL=redis://localhost:6379/0
+```
+
+Use your own database credentials and a secure random JWT secret.
+
+**Important:** Do not commit `.env` or expose credentials.
+
+### 5. Run database migrations
+
+Make sure PostgreSQL is running and the database is configured correctly.
+
+```powershell
+alembic upgrade head
+```
+
+### 6. Start the API
+
+```powershell
+uvicorn app.main:app --reload
+```
+
+Open these URLs:
+
+- API: http://127.0.0.1:8000
+- Swagger UI: http://127.0.0.1:8000/docs
+- Health check: http://127.0.0.1:8000/health
+
+## Run with Docker
+
+Make sure Docker Desktop is running.
+
+### 1. Start the services
+
+```powershell
+docker compose up --build
+```
+
+This starts the API, PostgreSQL, and Redis services.
+
+### 2. Run database migrations
+
+Open another terminal in the project directory:
+
+```powershell
+docker compose exec api alembic upgrade head
+```
+
+### 3. Access the application
+
+- API: http://127.0.0.1:8000
+- Swagger UI: http://127.0.0.1:8000/docs
+- Health check: http://127.0.0.1:8000/health
+
+### 4. Stop the containers
+
+```powershell
+docker compose down
+```
+
+This stops and removes the containers while retaining named volumes.
+
+**Note:** Do not use `docker compose down -v` unless you intentionally want to delete the volumes and their stored data.
+
+## Run Tests
+
+Activate your virtual environment and run:
+
+```powershell
+python -m pytest
+```
+
+The latest reported test run completed with 106 passing tests. Run the command above to verify the current checkout.
+
+## Project Status
+
+Core backend workflows, authentication, inventory and order operations, automated tests, Docker setup, Redis caching, and request logging have been implemented and tested during development.
+
+**Deployment:** AWS deployment is not yet completed.
+
+---
+
+## API Endpoints
+
+Base URL:
+
+```text
+http://localhost:8000
+```
+
+Interactive API documentation:
+
+```text
+http://localhost:8000/docs
+```
+
+### Health
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/` | Root endpoint |
+| GET | `/health` | Health check |
+
+### Authentication
+
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/auth/register` | Register a user |
+| POST | `/auth/login` | Authenticate and receive an access token |
+
+### Organizations
+
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/organizations/` | Create an organization |
+| GET | `/organizations/me` | Get the current user's organization |
+
+### Products
+
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/products/` | Create a product |
+| GET | `/products/` | List products |
+| GET | `/products/{product_id}` | Get product details |
+| PUT | `/products/{product_id}` | Update a product |
+| DELETE | `/products/{product_id}` | Delete a product |
+
+### Warehouses
+
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/warehouses/` | Create a warehouse |
+| GET | `/warehouses/` | List warehouses |
+| GET | `/warehouses/{warehouse_id}` | Get warehouse details |
+| PUT | `/warehouses/{warehouse_id}` | Update a warehouse |
+| DELETE | `/warehouses/{warehouse_id}` | Delete a warehouse |
+
+### Customers
+
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/customers/` | Create a customer |
+| GET | `/customers/` | List customers |
+| GET | `/customers/{customer_id}` | Get customer details |
+| PUT | `/customers/{customer_id}` | Update a customer |
+| DELETE | `/customers/{customer_id}` | Delete a customer |
+
+### Inventory
+
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/inventory/` | Create an inventory record |
+| GET | `/inventory/` | List inventory |
+| GET | `/inventory/{inventory_id}` | Get inventory details |
+| PUT | `/inventory/{inventory_id}` | Update inventory |
+| POST | `/inventory/{inventory_id}/adjust` | Adjust stock quantity |
+
+### Orders
+
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/orders/` | Create an order |
+| GET | `/orders/` | List orders |
+| GET | `/orders/{order_id}` | Get order details |
+| POST | `/orders/{order_id}/confirm` | Confirm an order |
+| POST | `/orders/{order_id}/ship` | Ship an order |
+| POST | `/orders/{order_id}/complete` | Complete an order |
+| POST | `/orders/{order_id}/cancel` | Cancel an order |
+
+### Inventory Movements
+
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/inventory-movements/` | List inventory movement records |
+
+> Endpoint availability and request/response schemas can be inspected in the interactive Swagger UI at `/docs`.
+
+---
+
+## Authentication
+
+InventoryFlow uses JWT-based authentication to protect API endpoints.
+
+### 1. Register a user
+
+Send a `POST` request to:
+
+```text
+/auth/register
+```
+
+Example request body:
+
+```json
+{
+  "organization_id": 1,
+  "name": "Demo User",
+  "email": "demo@example.com",
+  "password": "DemoPassword123"
+}
+```
+
+Use an existing organization ID and an email address that has not already been registered.
+
+### 2. Log in
+
+Send a `POST` request to:
+
+```text
+/auth/login
+```
+
+Provide the login credentials using the request format shown in Swagger.
+
+The login endpoint returns an access token when authentication succeeds.
+
+### 3. Authorize requests
+
+For protected endpoints, include the JWT access token in the request header:
+
+```http
+Authorization: Bearer YOUR_ACCESS_TOKEN
+```
+
+In Swagger UI:
+
+1. Open `/docs`.
+2. Select **Authorize**.
+3. Enter your access token using the format expected by the authorization dialog.
+4. Execute the protected endpoint.
+
+Never commit real access tokens, passwords, or secret keys to GitHub.
+
+---
+
+---
+
+## Product API Examples
+
+These examples demonstrate common product operations. Use a valid JWT access token and an organization that exists in your database.
+
+### Create a product
+
+**Endpoint:** `POST /products/`
+
+Example request body:
+
+```json
+{
+  "name": "Dell Laptop",
+  "sku": "DEMO-001",
+  "description": "Business laptop",
+  "price": 55000,
+  "is_active": true
+}
+```
+
+Include any additional required fields shown in Swagger for your current schema.
+
+### List products
+
+**Endpoint:** `GET /products/`
+
+Retrieve products belonging to the authenticated user's organization.
+
+The endpoint supports pagination and filtering where configured.
+
+### Get product details
+
+**Endpoint:** `GET /products/{product_id}`
+
+Replace `{product_id}` with the ID of the product you want to retrieve.
+
+### Update a product
+
+**Endpoint:** `PUT /products/{product_id}`
+
+Example request body:
+
+```json
+{
+  "name": "Dell Laptop Updated",
+  "description": "Updated business laptop details",
+  "price": 58000,
+  "is_active": true
+}
+```
+
+Check the request schema in Swagger and provide all required fields.
+
+### Delete a product
+
+**Endpoint:** `DELETE /products/{product_id}`
+
+Deletes the selected product when the request is authorized and the operation is permitted.
+
+---
+
+## Inventory and Order Workflow
+
+InventoryFlow supports inventory adjustments and an order lifecycle.
+
+A typical workflow is:
+
+1. Create a product.
+2. Create a warehouse.
+3. Create an inventory record linking the product and warehouse.
+4. Create a customer.
+5. Create an order for that customer.
+6. Confirm the order.
+7. Ship the order.
+8. Complete the order.
+
+### Inventory adjustment
+
+Use:
+
+```text
+POST /inventory/{inventory_id}/adjust
+```
+
+This endpoint adjusts the stock quantity for an inventory record. Check the API schema for the required adjustment fields.
+
+### Order lifecycle
+
+The order workflow includes these operations:
+
+| Action | Endpoint |
+|---|---|
+| Create an order | `POST /orders/` |
+| Confirm an order | `POST /orders/{order_id}/confirm` |
+| Ship an order | `POST /orders/{order_id}/ship` |
+| Complete an order | `POST /orders/{order_id}/complete` |
+| Cancel an order | `POST /orders/{order_id}/cancel` |
+
+The application tracks inventory changes through the order workflow and records inventory movements.
+
+> Use the IDs returned by your own API requests. The exact request bodies and allowed state transitions are documented in Swagger.
+
+---
+
+---
+
+## Database Design
+
+InventoryFlow uses PostgreSQL as its relational database.
+
+The database is designed to support organization-level data isolation, inventory management, and order processing.
+
+### Main entities
+
+| Entity | Purpose |
+|---|---|
+| Organizations | Represents tenant organizations |
+| Users | Stores user accounts and access roles |
+| Products | Stores product details and SKU information |
+| Warehouses | Stores warehouse information |
+| Customers | Stores customer details |
+| Inventory | Tracks product stock by warehouse |
+| Orders | Stores customer orders and their statuses |
+| Order Items | Stores products and quantities associated with orders |
+| Inventory Movements | Records stock changes and their movement types |
+
+### Entity Relationship Diagram
+
+```mermaid
+erDiagram
+    ORGANIZATIONS ||--o{ USERS : contains
+    ORGANIZATIONS ||--o{ PRODUCTS : owns
+    ORGANIZATIONS ||--o{ WAREHOUSES : owns
+    ORGANIZATIONS ||--o{ CUSTOMERS : owns
+    ORGANIZATIONS ||--o{ ORDERS : owns
+
+    PRODUCTS ||--o{ INVENTORY : tracked_in
+    WAREHOUSES ||--o{ INVENTORY : stores
+
+    CUSTOMERS ||--o{ ORDERS : places
+    ORDERS ||--|{ ORDER_ITEMS : contains
+    PRODUCTS ||--o{ ORDER_ITEMS : referenced_by
+
+    INVENTORY ||--o{ INVENTORY_MOVEMENTS : records
+```
+
+---
+
+## System Architecture
+
+The application follows a backend API architecture built around FastAPI and PostgreSQL.
+
+```mermaid
+flowchart TD
+    Client[Client / API Consumer] --> API[FastAPI Application]
+
+    API --> Auth[JWT Authentication]
+    Auth --> RBAC[Role-Based Access Control]
+
+    RBAC --> Routes[API Routes]
+    Routes --> Services[Business Logic]
+    Services --> DB[(PostgreSQL)]
+    Services --> Cache[(Redis)]
+
+    DB --> Models[SQLAlchemy Models]
+    Models --> Migrations[Alembic Migrations]
+
+    API --> Tests[Pytest Tests]
+    API --> Docs[OpenAPI / Swagger]
+```
+
+---
+
+---
+
+## Limitations
+
+The current implementation is a portfolio project focused on backend development and core inventory and order management workflows.
+
+The following areas may require further development before production use:
+
+- Production deployment and infrastructure configuration.
+- Automated database backups and recovery procedures.
+- More comprehensive monitoring and observability.
+- Additional security hardening and performance testing.
+- Broader integration and load testing.
+
+## Future Improvements
+
+Potential future enhancements include:
+
+- Deploying the application to a cloud environment.
+- Adding a CI/CD deployment pipeline.
+- Improving monitoring, logging, and alerting.
+- Expanding automated test coverage.
+- Adding advanced inventory analytics and reporting.
+- Implementing more extensive operational and administrative features.
+
+## Project Status
+
+The core backend, database integration, authentication, role-based access control, inventory and order workflows, automated tests, Docker setup, and documentation have been developed.
+
+**Cloud deployment is not yet completed.**
+
+---
+
+## Author
+
+**Rohan S**
+
+GitHub: [srohan-0912](https://github.com/srohan-0912)
+
+Project Repository: [InventoryFlow](https://github.com/srohan-0912/inventoryflow)
+
+---
 
 
 Rohan S
