@@ -478,6 +478,31 @@ InventoryFlow uses PostgreSQL and SQLAlchemy ORM to manage organization-based in
 
 `PURCHASE`, `SALE`, `ADJUSTMENT`, `TRANSFER_IN`, `TRANSFER_OUT`, `RETURN`
 
+## Database Relationship Diagram
 
+The following diagram shows the main relationships between InventoryFlow database tables.
+
+```mermaid
+erDiagram
+    ORGANIZATIONS ||--o{ USERS : has
+    ORGANIZATIONS ||--o{ PRODUCTS : owns
+    ORGANIZATIONS ||--o{ WAREHOUSES : owns
+    ORGANIZATIONS ||--o{ CUSTOMERS : manages
+    ORGANIZATIONS ||--o{ INVENTORY : tracks
+    ORGANIZATIONS ||--o{ ORDERS : manages
+    ORGANIZATIONS ||--o{ INVENTORY_MOVEMENTS : records
+
+    PRODUCTS ||--o{ INVENTORY : stocked_in
+    WAREHOUSES ||--o{ INVENTORY : contains
+
+    CUSTOMERS ||--o{ ORDERS : places
+    WAREHOUSES ||--o{ ORDERS : fulfills
+
+    ORDERS ||--|{ ORDER_ITEMS : contains
+    PRODUCTS ||--o{ ORDER_ITEMS : references
+
+    PRODUCTS ||--o{ INVENTORY_MOVEMENTS : tracks
+    WAREHOUSES ||--o{ INVENTORY_MOVEMENTS : records
+    ORDERS o|--o{ INVENTORY_MOVEMENTS : generates
 
 Rohan S
