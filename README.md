@@ -211,4 +211,58 @@ Interactive API documentation is available at `/docs`.
 | POST | `/orders/{order_id}/ship` | Ship an order |
 | POST | `/orders/{order_id}/complete` | Complete an order |
 
+
+## Authentication Example
+
+InventoryFlow uses JWT bearer tokens for authenticated API requests.
+
+### 1. Register a user
+
+Send a `POST` request to `/auth/register`.
+
+```json
+{
+  "organization_id": 1,
+  "name": "Demo User",
+  "email": "demo@example.com",
+  "password": "DemoPassword123"
+}
+```
+
+The password must contain between 8 and 72 characters.
+
+A successful registration returns the user details, including the assigned role and account status. Newly registered users receive the `STAFF` role.
+
+### 2. Log in
+
+Send a `POST` request to `/auth/login`.
+
+```json
+{
+  "email": "demo@example.com",
+  "password": "DemoPassword123"
+}
+```
+
+A successful login returns:
+
+```json
+{
+  "access_token": "<your_access_token>",
+  "token_type": "bearer"
+}
+```
+
+### 3. Use the access token
+
+For protected endpoints, include the token in the HTTP `Authorization` header:
+
+```http
+Authorization: Bearer <your_access_token>
+```
+
+In Swagger UI (`/docs`), use the **Authorize** button if available and enter the bearer token as prompted.
+
+**Note:** Replace the example organization ID with an organization that exists in your database. Use a unique email address for each registration.
+
 Rohan S
